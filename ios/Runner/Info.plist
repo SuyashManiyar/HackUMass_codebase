@@ -4,6 +4,10 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>NSMicrophoneUsageDescription</key>
+    <string>This app needs microphone access for speech recognition</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>This app needs speech recognition</string>
 	<key>CFBundleDisplayName</key>
 	<string>HackUMass</string>
 	<key>CFBundleExecutable</key>
