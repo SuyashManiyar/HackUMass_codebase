@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   image_picker: ^1.0.7
   google_generative_ai: ^0.4.0
+  speech_to_text: ^7.3.0
+  flutter_tts: ^4.2.3
 
 dev_dependencies:
   flutter_test:
