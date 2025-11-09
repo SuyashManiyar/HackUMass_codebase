@@ -3,8 +3,14 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'gemini_service.dart';
 import 'pipeline_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-void main() {
+
+Future<void> main() async{
+  await dotenv.load(fileName: ".env");
+  print('Dotenv loaded successfully');
+  print('GEMINI_API_KEY exists: ${dotenv.env['GEMINI_API_KEY'] != null}');
+  print('OPENROUTER_API_KEY exists: ${dotenv.env['OPNRTR_API_KEY'] != null}');
   runApp(const MyApp());
 }
 
@@ -35,14 +41,13 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   File? _image;
   final ImagePicker _picker = ImagePicker();
-  String? _description;
-  bool _isLoading = false;
+  String? _imageSummary;
+  bool _isLoadingImage = false;
 
   final PipelineService _pipelineService = PipelineService();
-  String _recognizedText = '';
-  String _reversedText = '';
+  String _transcription = '';
   bool _isSpeechInitialized = false;
-  bool _isProcessingSpeech = false;
+  bool _isProcessingPipeline = false;
 
   @override
   void initState() {
@@ -75,7 +80,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (image != null) {
         setState(() {
           _image = File(image.path);
-          _description = null;
+          _imageSummary = null;
         });
       }
     } catch (e) {
@@ -87,8 +92,8 @@ class _MyHomePageState extends State<MyHomePage> {
     if (_image == null) return;
 
     setState(() {
-      _isLoading = true;
-      _description = null;
+      _isLoadingImage = true;
+      _imageSummary = null;
     });
 
     try {
@@ -96,12 +101,12 @@ class _MyHomePageState extends State<MyHomePage> {
       final result = await get_gemini_response(imageBytes);
 
       setState(() {
-        _description = result.toString();
-        _isLoading = false;
+        _imageSummary = result.toString();
+        _isLoadingImage = false;
       });
     } catch (e) {
       setState(() {
-        _isLoading = false;
+        _isLoadingImage = false;
       });
 
       if (mounted) {
@@ -116,46 +121,40 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  void _onSpeechResult(String text, bool isFinal) {
+  void _onTranscriptionUpdate(String text) {
     setState(() {
-      _recognizedText = text;
+      _transcription = text;
     });
   }
 
-  void _startListening() {
-    setState(() {
-      _recognizedText = '';
-      _reversedText = '';
-      _isProcessingSpeech = false;
-    });
-    _pipelineService.startListening(_onSpeechResult);
-  }
-
-  Future<void> _stopListening() async {
-    if (_isProcessingSpeech) return;
-
-    setState(() {
-      _isProcessingSpeech = true;
-    });
-
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    final finalText = await _pipelineService.stopListening();
-
-    final textToUse = finalText.isNotEmpty ? finalText : _recognizedText;
-
-    if (textToUse.isNotEmpty) {
-      final reversed = _pipelineService.reverseText(textToUse);
-      setState(() {
-        _recognizedText = textToUse;
-        _reversedText = reversed;
-      });
-      await _pipelineService.speakText(reversed);
+  Future<void> _toggleMicrophone() async {
+    if (_imageSummary == null || _imageSummary!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please capture and analyze an image first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
     }
 
-    setState(() {
-      _isProcessingSpeech = false;
-    });
+    if (_pipelineService.isListening) {
+      setState(() {
+        _isProcessingPipeline = true;
+      });
+
+      await _pipelineService.stopPipelineAndProcess(_imageSummary!);
+
+      setState(() {
+        _isProcessingPipeline = false;
+      });
+    } else {
+      setState(() {
+        _transcription = '';
+      });
+      await _pipelineService.startPipeline(_imageSummary!, _onTranscriptionUpdate);
+      setState(() {});
+    }
   }
 
   @override
@@ -209,20 +208,20 @@ class _MyHomePageState extends State<MyHomePage> {
                           ),
                           const SizedBox(height: 20),
                           ElevatedButton.icon(
-                            onPressed: _isLoading ? null : _describeImage,
-                            icon: _isLoading
+                            onPressed: _isLoadingImage ? null : _describeImage,
+                            icon: _isLoadingImage
                                 ? const SizedBox(
                               width: 20,
                               height: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                                 : const Icon(Icons.auto_awesome),
-                            label: Text(_isLoading ? 'Analyzing...' : 'Describe Image'),
+                            label: Text(_isLoadingImage ? 'Analyzing...' : 'Describe Image'),
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                             ),
                           ),
-                          if (_description != null) ...[
+                          if (_imageSummary != null) ...[
                             const SizedBox(height: 20),
                             Container(
                               width: double.infinity,
@@ -237,7 +236,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    'Description:',
+                                    'Image Summary:',
                                     style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.bold,
@@ -245,7 +244,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    _description!,
+                                    _imageSummary!,
                                     style: const TextStyle(fontSize: 14),
                                   ),
                                 ],
@@ -285,7 +284,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'Speech Recognition',
+                    'Ask a Question',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
@@ -301,47 +300,31 @@ class _MyHomePageState extends State<MyHomePage> {
                         border: Border.all(color: Colors.grey[300]!),
                       ),
                       constraints: const BoxConstraints(minHeight: 60),
-                      child: Column(
-                        children: [
-                          Text(
-                            _recognizedText.isEmpty ? 'Press and hold mic to speak' : _recognizedText,
-                            style: const TextStyle(fontSize: 16),
-                            textAlign: TextAlign.center,
-                          ),
-                          if (_reversedText.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            const Divider(),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Reversed:',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _reversedText,
-                              style: const TextStyle(fontSize: 16, color: Colors.blue),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ],
+                      child: Text(
+                        _transcription.isEmpty
+                            ? (_imageSummary == null
+                            ? 'Capture and analyze an image first'
+                            : 'Click mic to ask a question')
+                            : _transcription,
+                        style: const TextStyle(fontSize: 16),
+                        textAlign: TextAlign.center,
                       ),
                     ),
                     const SizedBox(height: 20),
                     GestureDetector(
-                      onLongPressStart: (_) => _startListening(),
-                      onLongPressEnd: (_) => _stopListening(),
+                      onTap: _toggleMicrophone,
                       child: Container(
                         width: 80,
                         height: 80,
                         decoration: BoxDecoration(
                           color: _pipelineService.isListening
                               ? Colors.red
-                              : _isProcessingSpeech
+                              : _isProcessingPipeline
                               ? Colors.orange
-                              : Colors.blue,
+                              : (_imageSummary == null ? Colors.grey : Colors.blue),
                           shape: BoxShape.circle,
                         ),
-                        child: _isProcessingSpeech
+                        child: _isProcessingPipeline
                             ? const Center(
                           child: CircularProgressIndicator(
                             color: Colors.white,
@@ -358,10 +341,10 @@ class _MyHomePageState extends State<MyHomePage> {
                     const SizedBox(height: 12),
                     Text(
                       _pipelineService.isListening
-                          ? 'Listening...'
-                          : _isProcessingSpeech
+                          ? 'Listening... (Click to stop)'
+                          : _isProcessingPipeline
                           ? 'Processing...'
-                          : 'Hold to speak',
+                          : 'Click to speak',
                       style: const TextStyle(fontSize: 14),
                     ),
                   ],
