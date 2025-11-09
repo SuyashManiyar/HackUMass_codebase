@@ -5,14 +5,19 @@ import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'screens/share_camera_screen.dart';
+
 import 'screens/connect_camera_screen.dart';
+import 'screens/share_camera_screen.dart';
+import 'test_pipeline_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
   runApp(const MyApp());
 }
 
@@ -69,7 +74,7 @@ class _MyHomePageState extends State<MyHomePage> {
   // For Physical Device: use 'http://YOUR_COMPUTER_IP:3000' (e.g., 'http://192.168.1.100:3000')
   // For iOS Simulator: use 'http://localhost:3000'
   static const String _serverUrl = 'http://172.31.35.36:3000';
-  
+
   // TODO: Replace with your Gemini API key
   // Get your API key from: https://makersuite.google.com/app/apikey
   static const String _apiKey = 'AIzaSyBjB9hCO3CSmWB4IZrvPHev1gdcP3Dzh_0';
@@ -300,7 +305,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _describeImage() async {
     if (_image == null) return;
-    
+
     if (_apiKey.isEmpty || _apiKey == 'YOUR_API_KEY_HERE') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -317,19 +322,13 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     try {
-      final model = GenerativeModel(
-        model: 'gemini-2.5-flash',
-        apiKey: _apiKey,
-      );
+      final model = GenerativeModel(model: 'gemini-2.5-flash', apiKey: _apiKey);
 
       final imageBytes = await _image!.readAsBytes();
       final prompt = TextPart('Describe this image in detail.');
 
       final response = await model.generateContent([
-        Content.multi([
-          prompt,
-          DataPart('image/jpeg', imageBytes),
-        ])
+        Content.multi([prompt, DataPart('image/jpeg', imageBytes)]),
       ]);
 
       setState(() {
@@ -340,7 +339,7 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         _isLoading = false;
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -435,7 +434,8 @@ class _MyHomePageState extends State<MyHomePage> {
                   icon: const Icon(Icons.camera_alt),
                   label: const Text('Open Local Camera'),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -470,7 +470,10 @@ class _MyHomePageState extends State<MyHomePage> {
                             : const Icon(Icons.auto_awesome),
                         label: Text(_isLoading ? 'Analyzing...' : 'Describe Image'),
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                       if (_description != null) ...[
@@ -520,6 +523,29 @@ class _MyHomePageState extends State<MyHomePage> {
                       ),
                     ),
                   ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      final summaryRaw =
+                          await rootBundle.loadString('assets/data/summary.json');
+                      final summary =
+                          jsonDecode(summaryRaw) as Map<String, dynamic>;
+                      if (!mounted) return;
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => TestPipelinePage(summary: summary),
+                        ),
+                      );
+                    } catch (err) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Voice test failed: $err')),
+                      );
+                    }
+                  },
+                  child: const Text('TEST VOICE PIPELINE PAGE'),
+                ),
               ],
             ),
           ),
@@ -537,25 +563,107 @@ class _MyHomePageState extends State<MyHomePage> {
                   children: [
                     if (_isCameraActive)
                       ElevatedButton.icon(
-                        onPressed: _isConversationActive ? _stopConversation : _startConversation,
-                        icon: Icon(_isConversationActive ? Icons.stop : Icons.chat),
-                        label: Text(_isConversationActive ? 'Stop Conversation' : 'Start Conversation'),
+                        onPressed:
+                            _isConversationActive ? _stopConversation : _startConversation,
+                        icon:
+                            Icon(_isConversationActive ? Icons.stop : Icons.chat),
+                        label: Text(
+                          _isConversationActive
+                              ? 'Stop Conversation'
+                              : 'Start Conversation',
+                        ),
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 16,
+                          ),
                           minimumSize: const Size(double.infinity, 50),
-                          backgroundColor: _isConversationActive ? Colors.red : Colors.green,
+                          backgroundColor:
+                              _isConversationActive ? Colors.red : Colors.green,
                         ),
                       ),
                     if (_isCameraActive) const SizedBox(height: 12),
                     ElevatedButton.icon(
                       onPressed: _toggleCamera,
-                      icon: Icon(_isCameraActive ? Icons.camera_alt_outlined : Icons.camera_alt),
-                      label: Text(_isCameraActive ? 'Stop Camera' : 'Start Live Camera'),
+                      icon: Icon(_isCameraActive
+                          ? Icons.camera_alt_outlined
+                          : Icons.camera_alt),
+                      label: Text(
+                        _isCameraActive ? 'Stop Camera' : 'Start Live Camera',
+                      ),
                       style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 16,
+                        ),
                         minimumSize: const Size(double.infinity, 50),
                       ),
                     ),
+                    if (_currentFrame != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Most Recent Frame Sent',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.memory(
+                                _currentFrame!,
+                                height: 120,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (_apiResponse != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'API Response',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              const JsonEncoder.withIndent('  ').convert(_apiResponse),
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (_isSendingToApi) ...[
+                      const SizedBox(height: 12),
+                      const LinearProgressIndicator(),
+                    ],
                   ],
                 ),
               ),
