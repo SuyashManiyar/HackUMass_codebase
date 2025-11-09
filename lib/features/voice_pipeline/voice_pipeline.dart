@@ -1,48 +1,35 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:typed_data';
-
 import '../llm/llm_service.dart';
 import '../slide_pipeline/slide_repo.dart';
-import 'stt/elevenlabs_stt_service.dart';
-import 'stt/voice_recorder.dart';
-import 'tts/audio_playback_controller.dart';
-import 'tts/elevenlabs_tts_service.dart';
+import 'speech_service.dart';
 
-/// Coordinates the STT → LLM → TTS pipeline using ElevenLabs and OpenRouter.
+/// Coordinates the STT → LLM → TTS pipeline using on-device services.
 class VoicePipeline {
   VoicePipeline({
-    required this.recorder,
-    required this.sttService,
+    required this.speechService,
     required this.llmService,
-    required this.ttsService,
-    AudioPlaybackController? audioController,
-  }) : _audio = audioController ?? AudioPlaybackController() {
-    _playerCompleteSub = _audio.player.onPlayerComplete.listen(
-      (_) => _isPlaying = false,
-    );
-  }
+  });
 
-  final VoiceRecorder recorder;
-  final ElevenLabsSttService sttService;
+  final LocalSpeechService speechService;
   final LlmService llmService;
-  final ElevenLabsTtsService ttsService;
-  final AudioPlaybackController _audio;
-  StreamSubscription<void>? _playerCompleteSub;
 
   bool _isRecording = false;
   bool _isProcessing = false;
-  bool _isPlaying = false;
   bool _canceled = false;
 
   bool get isRecording => _isRecording;
   bool get isProcessing => _isProcessing;
-  bool get isPlaying => _isPlaying;
+  bool get isPlaying => speechService.isSpeaking;
 
-  Future<void> startRecording() async {
-    await _audio.stop();
+  Stream<bool> get speakingStream => speechService.speakingStream;
+
+  Future<void> startRecording({
+    void Function(String text, bool isFinal)? onPartialTranscript,
+  }) async {
     _canceled = false;
-    await recorder.start();
+    await speechService.startListening(
+      (text, isFinal) => onPartialTranscript?.call(text, isFinal),
+    );
     _isRecording = true;
   }
 
@@ -50,11 +37,11 @@ class VoicePipeline {
     required SlideSummaryContext? Function(String question) resolveContext,
   }) async {
     if (!_isRecording) {
-      throw const VoicePipelineException('Recording was not started.');
+      throw const VoicePipelineException('Listening was not started.');
     }
 
     _isProcessing = true;
-    final File audioFile = await recorder.stop();
+    final String transcript = (await speechService.stopListening()).trim();
     _isRecording = false;
 
     try {
@@ -62,13 +49,7 @@ class VoicePipeline {
         throw const VoicePipelineException('Canceled');
       }
 
-      final transcript = (await sttService.transcribeFile(audioFile)).trim();
-      if (_canceled) {
-        throw const VoicePipelineException('Canceled');
-      }
-
       if (transcript.isEmpty) {
-        _isPlaying = false;
         return const VoicePipelineResult(transcript: '', answer: '');
       }
 
@@ -83,18 +64,7 @@ class VoicePipeline {
         throw const VoicePipelineException('Canceled');
       }
 
-      final Uint8List audioBytes = await ttsService.synthesize(text: answer);
-      if (_canceled) {
-        throw const VoicePipelineException('Canceled');
-      }
-
-      await _audio.stop();
-      _isPlaying = true;
-      unawaited(
-        _audio.playBytes(audioBytes).whenComplete(() {
-          _isPlaying = false;
-        }),
-      );
+      await speechService.speak(answer);
 
       return VoicePipelineResult(
         transcript: transcript,
@@ -112,25 +82,16 @@ class VoicePipeline {
   Future<void> cancel() async {
     _canceled = true;
     if (_isRecording) {
-      try {
-        await recorder.stop();
-      } catch (_) {
-        // Ignore errors when stopping a recorder that may already be stopped.
-      }
+      await speechService.cancelListening();
       _isRecording = false;
     }
     _isProcessing = false;
-    _isPlaying = false;
-    await _audio.stop();
+    await speechService.stopSpeaking();
   }
 
   Future<void> dispose() async {
-    await recorder.dispose();
-    sttService.dispose();
-    ttsService.dispose();
+    await speechService.dispose();
     llmService.dispose();
-    await _playerCompleteSub?.cancel();
-    await _audio.dispose();
   }
 }
 

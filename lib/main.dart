@@ -13,6 +13,7 @@ import 'features/camera/camera_capture_service.dart';
 import 'features/screens/connect_camera_screen.dart';
 import 'features/screens/share_camera_screen.dart';
 import 'features/screens/test_pipeline_page.dart';
+import 'features/screens/end_summary_page.dart';
 import 'features/slide_pipeline/slide_client.dart';
 import 'features/slide_pipeline/slide_repo.dart';
 import 'features/slide_pipeline/slide_scheduler.dart';
@@ -231,6 +232,25 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  void _openEndSummary() {
+    final history = _slideRepository.history;
+    if (history.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Process at least one slide before viewing the session summary.'),
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => EndSummaryPage(
+          slideContexts: history.toList(),
+        ),
+      ),
+    );
+  }
   void _openSlidePipelineTester() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (context) => const SlidePipelineTestPage()),
@@ -479,6 +499,11 @@ class _MyHomePageState extends State<MyHomePage> {
                           ElevatedButton(
                             onPressed: _openSlidePipelineTester,
                             child: const Text('Open Slide Pipeline Tester'),
+                          ),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            onPressed: summary == null ? null : _openEndSummary,
+                            child: const Text('View Session Summary'),
                           ),
                         ],
                       ),

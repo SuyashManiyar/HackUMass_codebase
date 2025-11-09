@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import '../../core/env.dart';
 import '../slide_pipeline/slide_repo.dart';
 import '../voice_pipeline/conversation_controller.dart';
 
@@ -41,14 +40,6 @@ class _TestPipelinePageState extends State<TestPipelinePage> {
   void initState() {
     super.initState();
     _summaryText = const JsonEncoder.withIndent('  ').convert(widget.summary);
-
-    final elevenLabsKey = Env.elevenLabsApiKey;
-    final openRouterKey = Env.openRouterApiKey;
-
-    if (elevenLabsKey.isEmpty || openRouterKey.isEmpty) {
-      _error = 'Missing ElevenLabs or OpenRouter API key. Check your .env file.';
-      return;
-    }
 
     try {
       _controller = ConversationController(repository: widget.repository);
