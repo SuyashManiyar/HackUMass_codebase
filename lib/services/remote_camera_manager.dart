@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer';
 import 'dart:io';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:path_provider/path_provider.dart';
 import 'camera_stream_service.dart';
 import 'signaling_service.dart';
 
@@ -179,8 +180,48 @@ class RemoteCameraManager {
 
   /// Capture frame from remote stream
   Future<File> captureFrame(MediaStream stream) async {
-    // Implementation remains the same
-    return File(''); // Placeholder
+    try {
+      // Create RTCVideoRenderer to capture frame
+      final renderer = RTCVideoRenderer();
+      await renderer.initialize();
+      renderer.srcObject = stream;
+
+      // Wait for the renderer to have a frame
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Check if we have valid video dimensions
+      final videoWidth = renderer.videoWidth;
+      final videoHeight = renderer.videoHeight;
+
+      if (videoWidth == 0 || videoHeight == 0) {
+        throw Exception('No video frame available');
+      }
+
+      // Get temporary directory
+      final directory = await getTemporaryDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final filePath = '${directory.path}/remote_capture_$timestamp.jpg';
+
+      // Capture frame using flutter_webrtc's built-in method
+      final imageData = await renderer.captureFrame();
+
+      if (imageData == null) {
+        throw Exception('Failed to capture frame');
+      }
+
+      // Write to file
+      final file = File(filePath);
+      await file.writeAsBytes(imageData);
+
+      // Cleanup
+      renderer.dispose();
+
+      log('Frame captured: $filePath');
+      return file;
+    } catch (e) {
+      log('Error capturing frame: $e');
+      rethrow;
+    }
   }
 
   /// Switch camera (only for sender)
