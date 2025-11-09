@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
@@ -64,15 +65,17 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isConversationActive = false;
   Timer? _frameCaptureTimer;
   Uint8List? _currentFrame;
+  Uint8List? _previousFrame;
   Map<String, dynamic>? _apiResponse;
   bool _isSendingToApi = false;
+  bool _showCaptured = false;
   
   // TODO: Replace with your Gemini API key
   // Get your API key from: https://makersuite.google.com/app/apikey
   static const String _apiKey = 'AIzaSyBjB9hCO3CSmWB4IZrvPHev1gdcP3Dzh_0';
   
   // TODO: Replace with your local API URL (e.g., 'http://192.168.1.100:8000/api/process-image')
-  static const String _apiUrl = 'http://172.31.93.144:8000/api/process-image';
+  static const String _apiUrl = 'http://10.13.105.159:8000/api/process-image';
 
   Future<void> _toggleCamera() async {
     if (_isCameraActive) {
@@ -136,8 +139,8 @@ class _MyHomePageState extends State<MyHomePage> {
     // Capture initial frame
     _captureFrame();
 
-    // Set up timer to capture frame every 5 seconds
-    _frameCaptureTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    // Set up timer to capture frame every 10 seconds
+    _frameCaptureTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
       _captureFrame();
     });
   }
@@ -148,6 +151,7 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _isConversationActive = false;
       _currentFrame = null;
+      _previousFrame = null;
       _apiResponse = null;
     });
   }
@@ -163,11 +167,24 @@ class _MyHomePageState extends State<MyHomePage> {
       
       if (mounted) {
         setState(() {
+          // Store current frame as previous before updating
+          _previousFrame = _currentFrame;
           _currentFrame = imageBytes;
+          // Show "captured" message
+          _showCaptured = true;
+        });
+        
+        // Hide "captured" message after 1 second
+        Timer(const Duration(seconds: 1), () {
+          if (mounted) {
+            setState(() {
+              _showCaptured = false;
+            });
+          }
         });
       }
       
-      // Send image to API
+      // Send current frame to API
       await _sendImageToApi(imageBytes);
     } catch (e) {
       print('Error capturing frame: $e');
@@ -188,12 +205,15 @@ class _MyHomePageState extends State<MyHomePage> {
       // Create multipart request
       final request = http.MultipartRequest('POST', Uri.parse(_apiUrl));
       
-      // Add image file to the request
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      
+      // Add image
       request.files.add(
         http.MultipartFile.fromBytes(
           'image',
           imageBytes,
-          filename: 'frame_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          filename: 'image_$timestamp.jpg',
+          contentType: MediaType('image', 'jpeg'),
         ),
       );
 
@@ -342,6 +362,37 @@ class _MyHomePageState extends State<MyHomePage> {
                         child: Image.memory(
                           _currentFrame!,
                           fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                  ),
+                // Display "Captured" message overlay
+                if (_showCaptured)
+                  Positioned(
+                    top: 50,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: const Text(
+                          'Captured',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
