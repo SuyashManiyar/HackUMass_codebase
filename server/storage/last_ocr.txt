@@ -1,0 +1,51 @@
+September 18,2019
+Lecture 5 - 37
+Justin Johnson
+import numpy
+from numpy.random import randn
+Neural Net in <20 lines!
+64 ,
+1000 ,
+100 ,
+10
+Din, H;
+Dout
+randn(N, Din)
+randn(N,
+Dout )
+randn(Din,
+H) , randn(H,
+Dout)
+Wl,
+for
+range(10880)
+h = 1.0
+(1.0
+np.
+exp(-X.dot(wl) ) )
+Y_pred
+h.dot (w2)
+loss
+np.:
+square(y_pred
+Y) <
+dy_pred
+2.0
+(y_pred
+output layer
+dw2
+h.T.dot (dy_pred)
+input layer
+dy_pred.dot (w2.T)
+hidden layer
+= XTdot (dh
+h * (1 - h) )
+F= le-4
+dwl
+'1e-4
+dw2
+Justin Johnson
+Lecture 5
+September 18,2019
+sum( )
+dwl

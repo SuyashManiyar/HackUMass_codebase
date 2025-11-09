@@ -1,0 +1,20 @@
+{
+  "title": [
+    "Neural Net in <20 lines!"
+  ],
+  "enumeration": [],
+  "equation": [],
+  "table": [],
+  "image": [
+    "A diagram illustrating a simple feedforward neural network structure with three layers: an input layer (3 nodes), a hidden layer (4 nodes), and an output layer (2 nodes). Arrows connect nodes from one layer to the next, representing weighted connections."
+  ],
+  "code": [
+    "A Python code snippet using NumPy to implement a two-layer neural network from scratch. It defines network dimensions for input (Din), hidden (H), and output (Dout) layers, initializes random input data (x), target data (y), and weights (w1, w2). The core is a training loop that performs a forward pass (calculating hidden layer activation with a sigmoid function and output prediction), computes the mean squared error loss, and then executes a backward pass to calculate gradients for the weights (dw1, dw2). Finally, it updates the weights using a learning rate of 1e-4."
+  ],
+  "slide_number": [
+    "Lecture 5 - 37"
+  ],
+  "summary": [
+    "This slide introduces a basic two-layer neural network implemented in fewer than 20 lines of Python code using NumPy. It features a visual diagram of the network architecture, showing an input layer, a hidden layer, and an output layer. The accompanying code demonstrates the complete training process, including data and weight initialization, a forward pass with a sigmoid activation function for the hidden layer, loss calculation using mean squared error, and a backward pass for gradient computation, followed by weight updates using gradient descent. The slide aims to illustrate the simplicity of implementing a neural network from first principles."
+  ]
+}

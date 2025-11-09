@@ -71,6 +71,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/data/summary.json
+    - .env
 
 dependency_overrides:
   record_linux: ^1.2.1

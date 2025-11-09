@@ -50,24 +50,21 @@ npm install
 
 ## Configuration
 
-### Signaling Server URL
-Update the server URL in `lib/main.dart`:
-```dart
-static const String _serverUrl = 'http://YOUR_SERVER_IP:3000';
+All runtime configuration now lives in an `.env` file alongside the Flutter app. Create `.env` (or copy `.env.example` if present) and populate the following keys:
+
+```
+FASTAPI_BASE_URL=http://YOUR_FASTAPI_HOST:8000
+SIGNALING_SERVER_URL=http://YOUR_SIGNALING_HOST:3000
+OPENROUTER_API_KEY=sk-...
+ELEVENLABS_API_KEY=...
+GEMINI_API_KEY=...            # Optional fallback for legacy flows
+SLIDE_CAPTURE_INTERVAL=10     # Seconds between automatic captures
 ```
 
-For local testing:
-- Use `http://localhost:3000` when testing on emulator
-- Use `http://YOUR_LOCAL_IP:3000` when testing on physical devices
-- Use `http://10.0.2.2:3000` for Android emulator to access host machine
-
-### Gemini API Key
-The app includes a demo API key. For production, replace it in `lib/main.dart`:
-```dart
-static const String _apiKey = 'YOUR_GEMINI_API_KEY';
-```
-
-Get your API key from: https://makersuite.google.com/app/apikey
+- `FASTAPI_BASE_URL` points to the OCR/Gemini summarization service (see `server/` directory).
+- `SIGNALING_SERVER_URL` is the WebRTC signaling Node server.
+- `OPENROUTER_API_KEY` and `ELEVENLABS_API_KEY` power the voice pipeline (STT → LLM → TTS).
+- `SLIDE_CAPTURE_INTERVAL` controls how often the app captures frames while the scheduler is running.
 
 ## Running the Application
 
@@ -128,25 +125,50 @@ flutter run -d ios
 
 ```
 lib/
-├── config/
-│   └── app_config.dart          # App configuration
-├── screens/
-│   ├── share_camera_screen.dart # Share camera UI
-│   ├── connect_camera_screen.dart # Connect to remote camera UI
-│   └── remote_camera_view_screen.dart # Remote camera view UI
+├── core/
+│   ├── app_state.dart              # Slide summary state
+│   └── env.dart                    # Environment helpers (.env access)
+├── features/
+│   ├── camera/
+│   │   ├── camera_capture_service.dart
+│   │   └── camera_controller.dart
+│   ├── slide_pipeline/
+│   │   ├── slide_client.dart       # POST /process_slide
+│   │   ├── slide_repo.dart         # Stores latest OCR + summary
+│   │   └── slide_scheduler.dart    # Periodic capture loop
+│   ├── voice_pipeline/
+│   │   ├── conversation_controller.dart
+│   │   ├── voice_pipeline.dart
+│   │   ├── stt/
+│   │   └── tts/
+│   ├── llm/
+│   │   └── llm_service.dart
+│   └── screens/
+│       ├── connect_camera_screen.dart
+│       ├── remote_camera_view_screen.dart
+│       ├── share_camera_screen.dart
+│       └── test_pipeline_page.dart
 ├── services/
-│   ├── signaling_service.dart   # WebSocket signaling
-│   ├── camera_stream_service.dart # WebRTC peer connections
-│   └── remote_camera_manager.dart # Orchestrates streaming
+│   ├── camera_stream_service.dart
+│   ├── fastapi_client.dart        # Shared FastAPI HTTP client
+│   ├── remote_camera_manager.dart
+│   └── signaling_service.dart
 ├── utils/
-│   ├── error_handler.dart       # Error handling utilities
-│   └── connection_monitor.dart  # Connection quality monitoring
-└── main.dart                    # App entry point
+│   ├── connection_monitor.dart
+│   ├── debouncer.dart
+│   ├── error_handler.dart
+│   └── logger.dart
+└── main.dart                      # App entry point & home UI
+
+server/
+├── main.py                        # FastAPI application
+├── routers/                       # /process_slide & /health
+└── core/                          # OCR, Gemini, change detection
 
 signaling-server/
-├── index.js                     # Signaling server
-├── package.json                 # Node.js dependencies
-└── README.md                    # Server documentation
+├── index.js
+├── package.json
+└── README.md
 ```
 
 ## Troubleshooting
