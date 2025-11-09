@@ -1,0 +1,6 @@
+google-generativeai>=0.4.0
+picamera2
+numpy
+imageio>=2.34.0
+python-dotenv>=1.0.1
+elevenlabs>=1.0.0
