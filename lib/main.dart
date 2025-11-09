@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'dart:io';
+import 'screens/share_camera_screen.dart';
+import 'screens/connect_camera_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -46,6 +48,12 @@ class _MyHomePageState extends State<MyHomePage> {
   final ImagePicker _picker = ImagePicker();
   String? _description;
   bool _isLoading = false;
+  
+  // Signaling server URL - IMPORTANT: Change this based on your setup
+  // For Android Emulator: use 'http://10.0.2.2:3000'
+  // For Physical Device: use 'http://YOUR_COMPUTER_IP:3000' (e.g., 'http://192.168.1.100:3000')
+  // For iOS Simulator: use 'http://localhost:3000'
+  static const String _serverUrl = 'http://172.31.35.36:3000';
   
   // TODO: Replace with your Gemini API key
   // Get your API key from: https://makersuite.google.com/app/apikey
@@ -138,10 +146,73 @@ class _MyHomePageState extends State<MyHomePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
+              // Remote camera options
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ShareCameraScreen(
+                                serverUrl: _serverUrl,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.videocam),
+                        label: const Text('Share Camera'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ConnectCameraScreen(
+                                serverUrl: _serverUrl,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.link),
+                        label: const Text('Connect'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 12),
               ElevatedButton.icon(
                 onPressed: _captureImage,
                 icon: const Icon(Icons.camera_alt),
-                label: const Text('Open Camera'),
+                label: const Text('Open Local Camera'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),

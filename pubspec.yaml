@@ -36,6 +36,11 @@ dependencies:
   cupertino_icons: ^1.0.8
   image_picker: ^1.0.7
   google_generative_ai: ^0.4.0
+  flutter_webrtc: ^0.12.3
+  socket_io_client: ^2.0.3+1
+  camera: ^0.10.5+9
+  permission_handler: ^11.3.0
+  path_provider: ^2.1.2
 
 dev_dependencies:
   flutter_test:
