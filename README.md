@@ -1,125 +1,187 @@
-# HackUMass Camera App
+# GuideLens
 
-A Flutter mobile application that enables camera capture with AI-powered image description using Google's Gemini AI, plus real-time camera feed sharing between devices using WebRTC.
+GuideLens is a mobile-first assistant for classroom and conference settings. It watches a presentation through the device camera, decides when a new slide appears, produces structured summaries with Gemini, and lets attendees ask voice questions that are answered in context. When the capture session ends it builds a session recap you can export and review.
 
-## Features
+## Environment Setup
 
-### 1. Local Camera Capture
-- Capture photos using device camera
-- AI-powered image description using Gemini AI
-- Simple and intuitive interface
+Install the tooling you need to work locally:
 
-### 2. Remote Camera Feed Sharing (NEW)
-- Share your camera feed with another device in real-time
-- Connect to a remote camera using a pairing code
-- Peer-to-peer video streaming with WebRTC
-- Low latency and secure connections
-- Switch between front and back cameras while streaming
+- Flutter SDK 3.9.2 or newer (includes Dart)
+- Xcode (macOS) or Android SDK + Android Studio/VS Code
+- Python 3.11+ for the FastAPI backend (a `.venv` is recommended)
+- Node.js 18+ if you plan to run the optional signaling server for remote camera sharing
 
-## Prerequisites
+Clone the repository and install Flutter dependencies:
 
-### Development Environment
-- Flutter SDK (3.9.2 or higher)
-- Dart SDK (included with Flutter)
-- Android Studio or VS Code with Flutter extensions
-- Android SDK (for Android development)
-- Xcode (for iOS development, macOS only)
-
-### For Remote Camera Feature
-- Node.js (v14 or higher) for signaling server
-- npm or yarn package manager
-
-## Installation
-
-### 1. Clone the Repository
 ```bash
-git clone <repository-url>
+git clone https://github.com/SuyashManiyar/HackUMass_codebase.git
 cd HackUMass_codebase
-```
-
-### 2. Install Flutter Dependencies
-```bash
 flutter pub get
 ```
 
-### 3. Set Up Signaling Server
-```bash
-cd signaling-server
-npm install
-```
-
-## Configuration
-
-All runtime configuration now lives in an `.env` file alongside the Flutter app. Create `.env` (or copy `.env.example` if present) and populate the following keys:
+Create `.env` beside `lib/main.dart` and provide the runtime keys:
 
 ```
-FASTAPI_BASE_URL=http://YOUR_FASTAPI_HOST:8000
-SIGNALING_SERVER_URL=http://YOUR_SIGNALING_HOST:3000
+FASTAPI_BASE_URL=http://127.0.0.1:8000
+SIGNALING_SERVER_URL=http://127.0.0.1:3000
 OPENROUTER_API_KEY=sk-...
 ELEVENLABS_API_KEY=...
-GEMINI_API_KEY=...            # Optional fallback for legacy flows
-SLIDE_CAPTURE_INTERVAL=10     # Seconds between automatic captures
+GEMINI_API_KEY=...
+SLIDE_CAPTURE_INTERVAL=10
 ```
 
-- `FASTAPI_BASE_URL` points to the OCR/Gemini summarization service (see `server/` directory).
-- `SIGNALING_SERVER_URL` is the WebRTC signaling Node server.
-- `OPENROUTER_API_KEY` and `ELEVENLABS_API_KEY` power the voice pipeline (STT → LLM → TTS).
-- `SLIDE_CAPTURE_INTERVAL` controls how often the app captures frames while the scheduler is running.
+The `.env` powers both camera capture (FastAPI), question answering (OpenRouter), and audio interfaces (ElevenLabs). The backend also honors `GEMINI_API_KEY` for slide summarization.
 
-## Running the Application
+## Before You Run
 
-### 1. Start the Signaling Server
-```bash
-cd signaling-server
-npm start
+1. **Bootstrap the Python backend**
+   ```bash
+   cd HackUMass_codebase
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r server/requirements.txt
+   export GEMINI_API_KEY=...
+   uvicorn server.main:app --host 0.0.0.0 --port 8000
+   ```
+2. **(Optional) Start the signaling server** for remote camera sharing:
+   ```bash
+   cd signaling-server
+   npm install
+   npm start
+   ```
+3. **Launch Flutter** on your device or simulator:
+   ```bash
+   flutter run
+   ```
+
+Once the backend is up and the Flutter app is running, tap **Start Capturing** in the app to begin a session.
+
+## GuideLens Pipeline
+
+#### ✅ Full System Pipeline (Condensed w/ Arrows)
+
+```
+START SESSION
+     ↓
+Camera video feed → Flutter client
+     ↓ (periodic frames)
+Send frame → FastAPI /process_slide
+     ↓
+[FastAPI]
+  • CLIP similarity vs last slide
+  • OCR → text similarity
+     ↓
+New slide decision rule:
+  IF (CLIP < 0.88) OR (TextSim < 0.65) → NEW SLIDE
+  ELSE → SAME SLIDE → return latest summary
+     ↓
+IF NEW SLIDE:
+     ↓
+Gemini 2.5 Flash → structured JSON:
+  {
+    title[], enumeration[], equations[],
+    display_summary[], end_summary[], ... etc.
+  }
+     ↓
+Store summary → update:
+  • latest slide
+  • slide history[]
+     ↓
+Return JSON → Flutter
+     ↓
+UI shows → “Slide Summary”
 ```
 
-The server will run on `http://localhost:3000`
+#### ✅ Voice Pipeline
 
-### 2. Run the Flutter App
-
-**On Android Emulator:**
-```bash
-flutter run
+```
+User taps mic → record speech
+     ↓
+Speech-to-Text (ElevenLabs / STT)
+     ↓
+Text query + latest slide summary
++ slide history (context)
+     ↓
+Send → OpenRouter (GPT-4o-mini)
+     ↓
+LLM generates short 25-word reply
+     ↓
+Text-To-Speech → ElevenLabs TTS
+     ↓
+User hears answer
+     ↓
+Follow-up questions allowed (loop)
 ```
 
-**On Physical Device:**
-1. Enable USB debugging on your device
-2. Connect via USB
-3. Run:
-```bash
-flutter run
+#### ✅ Session Finalization
+
+```
+At Stop Capturing:
+     ↓
+We have:
+  • slide_history[]
+  • per-slide end_summary[]
+     ↓
+Generate overall lecture summary (Gemini)
+     ↓
+Store:
+  • all slide JSONs
+  • overall_summary
+     ↓
+Show “End Summary” screen
 ```
 
-**On iOS Simulator (macOS only):**
-```bash
-flutter run -d ios
+#### 🔹 Components
+
+**Client (Flutter)** – captures frames, renders summaries, manages slide history, and handles the voice assistant UX.  
+**Backend (FastAPI)** – performs frame differencing (CLIP + OCR), calls Gemini, maintains session state, and returns structured JSON.  
+**Models** – CLIP for similarity, OCR for text extraction, Gemini for slide summaries, OpenRouter for QA, and ElevenLabs for both STT and TTS.
+
+#### ✅ Key Logic Rules
+
+- Slide is replaced only if:
+
+  ```
+  clip_sim < 0.88   OR
+  text_sim < 0.65
+  ```
+
+- Only a **new** slide triggers Gemini extraction and history append.
+
+## Project Structure
+
+```
+lib/
+├── core/                       # App state + env helpers
+├── features/
+│   ├── camera/                 # Camera controller & capture service
+│   ├── slide_pipeline/         # Slide client, repository, scheduler
+│   ├── voice_pipeline/         # Conversation controller + STT/TTS
+│   ├── llm/                    # OpenRouter bridge
+│   └── screens/                # Supporting UI flows
+├── services/                   # FastAPI client, signaling, etc.
+├── utils/                      # Logger, debouncer, helpers
+└── main.dart                   # App entry, primary UI
+
+server/
+├── main.py                     # FastAPI entry point
+├── routers/                    # /process_slide, /health
+└── core/                       # CLIP, OCR, Gemini orchestration
+
+signaling-server/
+└── index.js                    # Optional WebRTC signaling server
 ```
 
-## Usage
+## Troubleshooting
 
-### Local Camera Capture
-1. Tap "Open Local Camera"
-2. Take a photo
-3. Tap "Describe Image" to get AI description
+- Run `flutter clean && flutter pub get` if builds fail.
+- Ensure `.env` is present and populated before launching the app.
+- If the backend rejects requests, confirm `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, and `ELEVENLABS_API_KEY` are exported.
+- To reset the voice assistant, stop capturing and start again; this reinitializes the conversation controller.
 
-### Remote Camera Sharing
+## Contributing
 
-#### As Sender (Share Your Camera):
-1. Tap "Share Camera"
-2. Grant camera and microphone permissions
-3. Share the displayed pairing code with the receiver
-4. Wait for receiver to connect
-5. Use "Switch Camera" to toggle between front/back
-6. Tap "Stop Sharing" when done
-
-#### As Receiver (Connect to Remote Camera):
-1. Tap "Connect"
-2. Enter the 6-character pairing code
-3. Tap "Connect"
-4. View the remote camera feed
-5. Tap "Capture" to take a photo (coming soon)
-6. Tap "Disconnect" when done
+Pull requests are welcome—keep code formatted with `flutter format .` and ensure both backend and Flutter app run locally (`uvicorn` and `flutter run`) before submitting.
 
 ## Project Structure
 
