@@ -36,6 +36,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   image_picker: ^1.0.7
   google_generative_ai: ^0.4.0
+  speech_to_text: ^7.3.0
+  flutter_tts: ^4.2.3
+  http: ^1.1.0
+  flutter_dotenv: ^5.1.0
   camera: ^0.11.0+2
   http: ^1.2.0
 
@@ -59,13 +63,13 @@ flutter:
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
-  uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
+   assets:
+     - .env
   #   - images/a_dot_ham.jpeg
 
+   uses-material-design: true
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
 

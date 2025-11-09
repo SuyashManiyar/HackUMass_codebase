@@ -24,7 +24,6 @@ Future<void> main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -39,15 +38,6 @@ class MyApp extends StatelessWidget {
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
 
   final String title;
 
@@ -267,16 +257,6 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _describeImage() async {
     if (_image == null) return;
-    
-    if (_apiKey.isEmpty || _apiKey == 'YOUR_API_KEY_HERE') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please set your Gemini API key in the code'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
 
     setState(() {
       _isLoading = true;
@@ -284,30 +264,18 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     try {
-      final model = GenerativeModel(
-        model: 'gemini-2.5-flash',
-        apiKey: _apiKey,
-      );
-
       final imageBytes = await _image!.readAsBytes();
-      final prompt = TextPart('Describe this image in detail.');
-
-      final response = await model.generateContent([
-        Content.multi([
-          prompt,
-          DataPart('image/jpeg', imageBytes),
-        ])
-      ]);
+      final result = await get_gemini_response(imageBytes);
 
       setState(() {
-        _description = response.text ?? 'No description available';
+        _description = result.toString();
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
         _isLoading = false;
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -318,6 +286,54 @@ class _MyHomePageState extends State<MyHomePage> {
       }
       print('Error describing image: $e');
     }
+  }
+
+  void _onSpeechResult(String text, bool isFinal) {
+    setState(() {
+      _recognizedText = text;
+    });
+  }
+
+  void _startListening() {
+    setState(() {
+      _recognizedText = '';
+      _reversedText = '';
+      _isProcessingSpeech = false;
+    });
+    _pipelineService.startListening(_onSpeechResult);
+  }
+
+  Future<void> _stopListening() async {
+    if (_isProcessingSpeech) return;
+
+    setState(() {
+      _isProcessingSpeech = true;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    final finalText = await _pipelineService.stopListening();
+
+    final textToUse = finalText.isNotEmpty ? finalText : _recognizedText;
+
+    if (textToUse.isNotEmpty) {
+      final reversed = _pipelineService.reverseText(textToUse);
+      setState(() {
+        _recognizedText = textToUse;
+        _reversedText = reversed;
+      });
+      await _pipelineService.speakText(reversed);
+    }
+
+    setState(() {
+      _isProcessingSpeech = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _pipelineService.dispose();
+    super.dispose();
   }
 
   @override
