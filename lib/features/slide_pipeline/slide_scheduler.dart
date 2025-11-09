@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 
 import '../../core/app_state.dart';
@@ -59,14 +57,22 @@ class SlideScheduler {
     try {
       final result = await _client.processSlide(frame);
       final summary = result.summary;
+
+      SlideSummaryContext? context;
       if (summary != null) {
-        if (result.newSlide || !_repository.hasSummary) {
-          _repository.save(summary: summary, slideNumber: result.slideNumber);
-        }
-        final latest = _repository.latestSummary ?? summary;
-        final latestNumber =
-            _repository.latestSlideNumber ?? result.slideNumber;
-        _appState.updateSlide(summary: latest, slideNumber: latestNumber);
+        context = _repository.updateCurrent(
+          summary: summary,
+          slideNumber: result.slideNumber,
+          isNewSlide: result.newSlide || !_repository.hasSummary,
+        );
+      }
+
+      context ??= _repository.currentContext;
+      if (context != null) {
+        _appState.updateSlide(
+          summary: context.summary,
+          slideNumber: context.slideNumber ?? result.slideNumber,
+        );
       }
     } catch (error, stackTrace) {
       debugPrint('SlideScheduler: failed to process slide - $error');

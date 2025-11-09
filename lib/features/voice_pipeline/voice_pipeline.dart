@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../llm/llm_service.dart';
+import '../slide_pipeline/slide_repo.dart';
 import 'stt/elevenlabs_stt_service.dart';
 import 'stt/voice_recorder.dart';
 import 'tts/audio_playback_controller.dart';
@@ -46,7 +47,7 @@ class VoicePipeline {
   }
 
   Future<VoicePipelineResult> stopAndProcess({
-    required Map<String, dynamic> slideSummary,
+    required SlideSummaryContext? Function(String question) resolveContext,
   }) async {
     if (!_isRecording) {
       throw const VoicePipelineException('Recording was not started.');
@@ -71,9 +72,12 @@ class VoicePipeline {
         return const VoicePipelineResult(transcript: '', answer: '');
       }
 
+      final SlideSummaryContext? context = resolveContext(transcript);
+      final summaryForAnswer = context?.summary ?? const <String, dynamic>{};
+
       final String answer = await llmService.fetchAnswer(
         userQuestion: transcript,
-        slideSummary: slideSummary,
+        slideSummary: summaryForAnswer,
       );
       if (_canceled) {
         throw const VoicePipelineException('Canceled');
@@ -92,7 +96,11 @@ class VoicePipeline {
         }),
       );
 
-      return VoicePipelineResult(transcript: transcript, answer: answer);
+      return VoicePipelineResult(
+        transcript: transcript,
+        answer: answer,
+        slideContext: context,
+      );
     } on VoicePipelineException {
       rethrow;
     } finally {
@@ -127,10 +135,15 @@ class VoicePipeline {
 }
 
 class VoicePipelineResult {
-  const VoicePipelineResult({required this.transcript, required this.answer});
+  const VoicePipelineResult({
+    required this.transcript,
+    required this.answer,
+    this.slideContext,
+  });
 
   final String transcript;
   final String answer;
+  final SlideSummaryContext? slideContext;
 }
 
 class VoicePipelineException implements Exception {

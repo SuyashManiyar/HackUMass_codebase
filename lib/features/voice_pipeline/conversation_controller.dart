@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 
 import '../../core/env.dart';
 import '../llm/llm_service.dart';
+import '../slide_pipeline/slide_repo.dart';
 import 'stt/elevenlabs_stt_service.dart';
 import 'stt/voice_recorder.dart';
 import 'tts/audio_playback_controller.dart';
@@ -13,6 +14,7 @@ import 'voice_pipeline.dart';
 /// Coordinates the voice pipeline behind a single [run] call.
 class ConversationController {
   ConversationController({
+    required SlideRepository repository,
     AudioPlaybackController? audioController,
     VoiceRecorder? recorder,
     ElevenLabsSttService? sttService,
@@ -22,7 +24,8 @@ class ConversationController {
        _recorder = recorder ?? VoiceRecorder(),
        _stt = sttService ?? ElevenLabsSttService(apiKey: Env.elevenLabsApiKey),
        _tts = ttsService ?? ElevenLabsTtsService(apiKey: Env.elevenLabsApiKey),
-       _llm = llmService ?? LlmService(baseUrl: Env.fastApiBaseUrl) {
+       _llm = llmService ?? LlmService(baseUrl: Env.fastApiBaseUrl),
+       _repository = repository {
     if (_stt.apiKey.isEmpty || _tts.apiKey.isEmpty) {
       throw StateError('Missing API keys for voice pipeline');
     }
@@ -46,6 +49,7 @@ class ConversationController {
   final ElevenLabsSttService _stt;
   final ElevenLabsTtsService _tts;
   final LlmService _llm;
+  final SlideRepository _repository;
   late final VoicePipeline _pipeline;
 
   bool _isRecording = false;
@@ -82,9 +86,7 @@ class ConversationController {
     });
   }
 
-  Future<VoicePipelineResult?> stop({
-    required Map<String, dynamic> summary,
-  }) async {
+  Future<VoicePipelineResult?> stop() async {
     if (!_isRecording || _isProcessing) return null;
 
     _isRecording = false;
@@ -93,12 +95,24 @@ class ConversationController {
     _recordingTimer = null;
 
     try {
-      final result = await _pipeline.stopAndProcess(slideSummary: summary);
+      if (!_repository.hasSummary) {
+        throw const VoicePipelineException(
+          'No slide summary captured yet. Capture a slide before asking questions.',
+        );
+      }
+
+      final result = await _pipeline.stopAndProcess(
+        resolveContext: (question) => _repository.resolveContext(question),
+      );
 
       // ignore: avoid_print
       print('Transcript: ${result.transcript}');
       // ignore: avoid_print
       print('Answer: ${result.answer}');
+      if (result.slideContext?.slideNumber != null) {
+        // ignore: avoid_print
+        print('Resolved slide #: ${result.slideContext!.slideNumber}');
+      }
 
       return result;
     } on VoicePipelineException catch (error) {

@@ -223,7 +223,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => TestPipelinePage(summary: summary),
+        builder: (context) => TestPipelinePage(
+          repository: _slideRepository,
+          summary: summary,
+        ),
       ),
     );
   }

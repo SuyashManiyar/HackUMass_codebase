@@ -4,11 +4,17 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../core/env.dart';
+import '../slide_pipeline/slide_repo.dart';
 import '../voice_pipeline/conversation_controller.dart';
 
 class TestPipelinePage extends StatefulWidget {
-  const TestPipelinePage({super.key, required this.summary});
+  const TestPipelinePage({
+    super.key,
+    required this.repository,
+    required this.summary,
+  });
 
+  final SlideRepository repository;
   final Map<String, dynamic> summary;
 
   @override
@@ -27,7 +33,9 @@ class _TestPipelinePageState extends State<TestPipelinePage> {
   String? _transcript;
   String? _answer;
   String? _error;
-  late final String _summaryText;
+  late String _summaryText;
+  String? _contextSummaryText;
+  int? _resolvedSlideNumber;
 
   @override
   void initState() {
@@ -43,7 +51,7 @@ class _TestPipelinePageState extends State<TestPipelinePage> {
     }
 
     try {
-      _controller = ConversationController();
+      _controller = ConversationController(repository: widget.repository);
       _speakingSub = _controller!.speakingStream.listen((isSpeaking) {
         if (!mounted) return;
         setState(() {
@@ -118,7 +126,7 @@ class _TestPipelinePageState extends State<TestPipelinePage> {
     });
 
     try {
-      final result = await controller.stop(summary: widget.summary);
+      final result = await controller.stop();
       if (!mounted) return;
 
       setState(() {
@@ -127,6 +135,17 @@ class _TestPipelinePageState extends State<TestPipelinePage> {
           _transcript = result.transcript;
           _answer = result.answer;
           final hasUtterance = result.transcript.trim().isNotEmpty;
+          _resolvedSlideNumber = result.slideContext?.slideNumber;
+          final contextSummary = result.slideContext?.summary;
+          _contextSummaryText = contextSummary == null
+              ? null
+              : const JsonEncoder.withIndent('  ').convert(contextSummary);
+
+          final activeSummary =
+              widget.repository.currentContext?.summary ?? widget.summary;
+          _summaryText =
+              const JsonEncoder.withIndent('  ').convert(activeSummary);
+
           if (hasUtterance && (_controller!.isPlaying || _isSpeaking)) {
             _status = 'Speaking…';
             _isSpeaking = true;
@@ -241,11 +260,34 @@ class _TestPipelinePageState extends State<TestPipelinePage> {
                               'Slide Summary',
                               style: theme.textTheme.titleSmall,
                             ),
+                            if (_resolvedSlideNumber != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  'Resolved slide: #$_resolvedSlideNumber',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                ),
+                              ),
                             const SizedBox(height: 8),
                             Text(
                               _summaryText,
                               style: theme.textTheme.bodySmall,
                             ),
+                            if (_contextSummaryText != null &&
+                                _contextSummaryText != _summaryText) ...[
+                              const SizedBox(height: 16),
+                              Text(
+                                'Context Used for Last Answer',
+                                style: theme.textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _contextSummaryText!,
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
                           ],
                         ),
                       ),
