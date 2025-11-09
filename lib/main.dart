@@ -1,9 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:camera/camera.dart';
+import 'package:http/http.dart' as http;
 import 'dart:io';
+import 'dart:async';
+import 'dart:typed_data';
+import 'dart:convert';
 
-void main() {
+List<CameraDescription>? cameras;
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    cameras = await availableCameras();
+  } catch (e) {
+    print('Error initializing cameras: $e');
+  }
   runApp(const MyApp());
 }
 
@@ -46,28 +59,190 @@ class _MyHomePageState extends State<MyHomePage> {
   final ImagePicker _picker = ImagePicker();
   String? _description;
   bool _isLoading = false;
+  CameraController? _cameraController;
+  bool _isCameraActive = false;
+  bool _isConversationActive = false;
+  Timer? _frameCaptureTimer;
+  Uint8List? _currentFrame;
+  Map<String, dynamic>? _apiResponse;
+  bool _isSendingToApi = false;
   
   // TODO: Replace with your Gemini API key
   // Get your API key from: https://makersuite.google.com/app/apikey
   static const String _apiKey = 'AIzaSyBjB9hCO3CSmWB4IZrvPHev1gdcP3Dzh_0';
+  
+  // TODO: Replace with your local API URL (e.g., 'http://192.168.1.100:8000/api/process-image')
+  static const String _apiUrl = 'http://172.31.93.144:8000/api/process-image';
 
-  Future<void> _captureImage() async {
+  Future<void> _toggleCamera() async {
+    if (_isCameraActive) {
+      // Stop camera
+      _stopConversation();
+      await _cameraController?.dispose();
+      setState(() {
+        _cameraController = null;
+        _isCameraActive = false;
+      });
+    } else {
+      // Start camera
+      if (cameras == null || cameras!.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No cameras available'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      try {
+        final camera = cameras!.first;
+        _cameraController = CameraController(
+          camera,
+          ResolutionPreset.high,
+          enableAudio: false,
+        );
+
+        await _cameraController!.initialize();
+
+        if (mounted) {
+          setState(() {
+            _isCameraActive = true;
+          });
+        }
+      } catch (e) {
+        print('Error initializing camera: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error starting camera: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _startConversation() {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
+    setState(() {
+      _isConversationActive = true;
+    });
+
+    // Capture initial frame
+    _captureFrame();
+
+    // Set up timer to capture frame every 5 seconds
+    _frameCaptureTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _captureFrame();
+    });
+  }
+
+  void _stopConversation() {
+    _frameCaptureTimer?.cancel();
+    _frameCaptureTimer = null;
+    setState(() {
+      _isConversationActive = false;
+      _currentFrame = null;
+      _apiResponse = null;
+    });
+  }
+
+  Future<void> _captureFrame() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
     try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
-      );
-
-      if (image != null) {
+      final image = await _cameraController!.takePicture();
+      final imageBytes = await File(image.path).readAsBytes();
+      
+      if (mounted) {
         setState(() {
-          _image = File(image.path);
-          _description = null; // Clear previous description
+          _currentFrame = imageBytes;
         });
       }
+      
+      // Send image to API
+      await _sendImageToApi(imageBytes);
     } catch (e) {
-      // Handle error - you might want to show a snackbar or dialog
-      print('Error capturing image: $e');
+      print('Error capturing frame: $e');
     }
+  }
+  
+  Future<void> _sendImageToApi(Uint8List imageBytes) async {
+    if (_apiUrl.isEmpty || _apiUrl == 'YOUR_API_URL_HERE') {
+      print('API URL not configured');
+      return;
+    }
+
+    setState(() {
+      _isSendingToApi = true;
+    });
+
+    try {
+      // Create multipart request
+      final request = http.MultipartRequest('POST', Uri.parse(_apiUrl));
+      
+      // Add image file to the request
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          imageBytes,
+          filename: 'frame_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        ),
+      );
+
+      // Send request
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        // Parse JSON response
+        final jsonResponse = json.decode(response.body) as Map<String, dynamic>;
+        
+        if (mounted) {
+          setState(() {
+            _apiResponse = jsonResponse;
+            _isSendingToApi = false;
+          });
+        }
+      } else {
+        print('API request failed with status: ${response.statusCode}');
+        if (mounted) {
+          setState(() {
+            _apiResponse = {
+              'error': 'API request failed',
+              'status_code': response.statusCode,
+              'message': response.body,
+            };
+            _isSendingToApi = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error sending image to API: $e');
+      if (mounted) {
+        setState(() {
+          _apiResponse = {
+            'error': 'Failed to connect to API',
+            'message': e.toString(),
+          };
+          _isSendingToApi = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopConversation();
+    _cameraController?.dispose();
+    super.dispose();
   }
 
   Future<void> _describeImage() async {
@@ -132,89 +307,178 @@ class _MyHomePageState extends State<MyHomePage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              ElevatedButton.icon(
-                onPressed: _captureImage,
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Open Camera'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      body: Stack(
+        children: [
+          // Camera preview or image display
+          if (_isCameraActive && _cameraController != null)
+            Stack(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: double.infinity,
+                  child: CameraPreview(_cameraController!),
                 ),
-              ),
-              const SizedBox(height: 20),
-            if (_image != null)
-              Column(
-                children: [
-                  Container(
-                    margin: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey, width: 2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.file(
-                        _image!,
-                        width: 300,
-                        height: 300,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: _isLoading ? null : _describeImage,
-                    icon: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.auto_awesome),
-                    label: Text(_isLoading ? 'Analyzing...' : 'Describe Image'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    ),
-                  ),
-                  if (_description != null) ...[
-                    const SizedBox(height: 20),
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      padding: const EdgeInsets.all(16),
+                // Display current frame overlay
+                if (_currentFrame != null)
+                  Positioned(
+                    top: 16,
+                    right: 16,
+                    child: Container(
+                      width: 150,
+                      height: 200,
                       decoration: BoxDecoration(
-                        color: Colors.grey[100],
+                        border: Border.all(color: Colors.white, width: 2),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Description:',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _description!,
-                            style: const TextStyle(fontSize: 14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
                           ),
                         ],
                       ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.memory(
+                          _currentFrame!,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
                     ),
+                  ),
+                // Display API response overlay
+                if (_apiResponse != null)
+                  Positioned(
+                    bottom: 120,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 300),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue, width: 2),
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.api, color: Colors.blue, size: 20),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'API Response:',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const Spacer(),
+                                if (_isSendingToApi)
+                                  const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              JsonEncoder.withIndent('  ').convert(_apiResponse),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            )
+          else if (_image != null)
+            SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey, width: 2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.file(
+                          _image!,
+                          width: 300,
+                          height: 300,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: _isLoading ? null : _describeImage,
+                      icon: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.auto_awesome),
+                      label: Text(_isLoading ? 'Analyzing...' : 'Describe Image'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      ),
+                    ),
+                    if (_description != null) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey[300]!),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Description:',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _description!,
+                              style: const TextStyle(fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
-                ],
-              )
-            else
-              Container(
+                ),
+              ),
+            )
+          else
+            Center(
+              child: Container(
                 width: 300,
                 height: 300,
                 decoration: BoxDecoration(
@@ -228,9 +492,51 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
               ),
-            ],
+            ),
+          
+          // Buttons at the bottom
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+              ),
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Start Conversation button (only when camera is active)
+                    if (_isCameraActive)
+                      ElevatedButton.icon(
+                        onPressed: _isConversationActive ? _stopConversation : _startConversation,
+                        icon: Icon(_isConversationActive ? Icons.stop : Icons.chat),
+                        label: Text(_isConversationActive ? 'Stop Conversation' : 'Start Conversation'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          minimumSize: const Size(double.infinity, 50),
+                          backgroundColor: _isConversationActive ? Colors.red : Colors.green,
+                        ),
+                      ),
+                    if (_isCameraActive) const SizedBox(height: 12),
+                    // Toggle Camera button
+                    ElevatedButton.icon(
+                      onPressed: _toggleCamera,
+                      icon: Icon(_isCameraActive ? Icons.camera_alt_outlined : Icons.camera_alt),
+                      label: Text(_isCameraActive ? 'Stop Camera' : 'Start Live Camera'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        minimumSize: const Size(double.infinity, 50),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

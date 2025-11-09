@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   image_picker: ^1.0.7
   google_generative_ai: ^0.4.0
+  camera: ^0.11.0+2
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:
