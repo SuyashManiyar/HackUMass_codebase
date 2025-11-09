@@ -8,6 +8,7 @@ class CameraStreamService {
   // Callbacks
   Function(RTCIceCandidate)? _onIceCandidateCallback;
   Function(MediaStream)? _onRemoteStreamCallback;
+  Function(RTCDataChannel)? _onDataChannelCallback;
 
   MediaStream? get localStream => _localStream;
   RTCPeerConnection? get peerConnection => _peerConnection;
@@ -74,6 +75,13 @@ class CameraStreamService {
         }
       };
 
+      _peerConnection!.onDataChannel = (RTCDataChannel channel) {
+        print('Data channel received: ${channel.label}');
+        if (_onDataChannelCallback != null) {
+          _onDataChannelCallback!(channel);
+        }
+      };
+
       // Handle connection state changes
       _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
         print('Connection state: $state');
@@ -117,6 +125,11 @@ class CameraStreamService {
   /// Set callback for remote stream
   void onRemoteStream(Function(MediaStream) callback) {
     _onRemoteStreamCallback = callback;
+  }
+
+  /// Set callback for incoming data channels
+  void onDataChannel(Function(RTCDataChannel) callback) {
+    _onDataChannelCallback = callback;
   }
 
   /// Create offer (for sender)
@@ -193,6 +206,16 @@ class CameraStreamService {
     }
   }
 
+  Future<RTCDataChannel> createDataChannel(String label,
+      [RTCDataChannelInit? options]) async {
+    if (_peerConnection == null) {
+      throw Exception('Peer connection not initialized');
+    }
+    final channel = await _peerConnection!
+        .createDataChannel(label, options ?? RTCDataChannelInit());
+    return channel;
+  }
+
   /// Switch camera (front/back)
   Future<void> switchCamera() async {
     if (_localStream == null) {
@@ -231,6 +254,7 @@ class CameraStreamService {
       // Clear callbacks
       _onIceCandidateCallback = null;
       _onRemoteStreamCallback = null;
+      _onDataChannelCallback = null;
 
       print('Camera stream service disposed');
     } catch (e) {

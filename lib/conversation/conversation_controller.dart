@@ -18,17 +18,18 @@ class ConversationController {
     ElevenLabsSttService? sttService,
     ElevenLabsTtsService? ttsService,
     LlmService? llmService,
-  }) : _audio = audioController ?? AudioPlaybackController(),
-       _recorder = recorder ?? VoiceRecorder(),
-       _stt =
-           sttService ??
-           ElevenLabsSttService(apiKey: dotenv.env['ELEVENLABS_API_KEY'] ?? ''),
-       _tts =
-           ttsService ??
-           ElevenLabsTtsService(apiKey: dotenv.env['ELEVENLABS_API_KEY'] ?? ''),
-       _llm =
-           llmService ??
-           LlmService(apiKey: dotenv.env['OPENROUTER_API_KEY'] ?? '') {
+  })
+      : _audio = audioController ?? AudioPlaybackController(),
+        _recorder = recorder ?? VoiceRecorder(),
+        _stt =
+            sttService ??
+            ElevenLabsSttService(apiKey: dotenv.env['ELEVENLABS_API_KEY'] ?? ''),
+        _tts =
+            ttsService ??
+            ElevenLabsTtsService(apiKey: dotenv.env['ELEVENLABS_API_KEY'] ?? ''),
+        _llm =
+            llmService ??
+            LlmService(apiKey: dotenv.env['OPENROUTER_API_KEY'] ?? '') {
     if (_stt.apiKey.isEmpty || _tts.apiKey.isEmpty || _llm.apiKey.isEmpty) {
       throw StateError('Missing API keys for voice pipeline');
     }
@@ -40,7 +41,12 @@ class ConversationController {
       ttsService: _tts,
       audioController: _audio,
     );
+    _active = this;
   }
+
+  static ConversationController? _active;
+
+  static ConversationController? get active => _active;
 
   final AudioPlaybackController _audio;
   final VoiceRecorder _recorder;
@@ -125,5 +131,8 @@ class ConversationController {
     _recordingTimer?.cancel();
     _recordingTimer = null;
     await _pipeline.dispose();
+    if (identical(_active, this)) {
+      _active = null;
+    }
   }
 }

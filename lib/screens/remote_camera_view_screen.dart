@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'dart:async';
 import '../services/remote_camera_manager.dart' as remote;
 
 class RemoteCameraViewScreen extends StatefulWidget {
@@ -30,6 +33,7 @@ class _RemoteCameraViewScreenState extends State<RemoteCameraViewScreen> {
     super.initState();
     _initializeRenderer();
     _setupCallbacks();
+    widget.manager.onRemoteCaptureSaved = _handleIncomingCapture;
   }
 
   Future<void> _initializeRenderer() async {
@@ -65,6 +69,17 @@ class _RemoteCameraViewScreenState extends State<RemoteCameraViewScreen> {
         _showDisconnectedDialog();
       }
     };
+  }
+
+  void _handleIncomingCapture(File file) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Capture received: ${file.path}'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   void _startDurationTimer() {
@@ -173,6 +188,7 @@ class _RemoteCameraViewScreenState extends State<RemoteCameraViewScreen> {
 
   @override
   void dispose() {
+    widget.manager.onRemoteCaptureSaved = null;
     _stopDurationTimer();
     _remoteRenderer.dispose();
     super.dispose();
@@ -182,6 +198,7 @@ class _RemoteCameraViewScreenState extends State<RemoteCameraViewScreen> {
   Widget build(BuildContext context) {
     final isConnected = widget.manager.connectionState == remote.RemoteConnectionState.connected;
     final connectionQuality = isConnected ? 'Good' : 'Poor';
+    final captureSupported = !kIsWeb;
 
     return Scaffold(
       appBar: AppBar(
@@ -316,15 +333,23 @@ class _RemoteCameraViewScreenState extends State<RemoteCameraViewScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: isConnected && !_isCapturing ? _captureFrame : null,
+                    onPressed: captureSupported && isConnected && !_isCapturing
+                        ? _captureFrame
+                        : null,
                     icon: _isCapturing
                         ? const SizedBox(
-                            width: 20,
-                            height: 20,
+                            width: 16,
+                            height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.camera_alt),
-                    label: const Text('Capture'),
+                        : const Icon(Icons.camera_alt_outlined),
+                    label: Text(
+                      !captureSupported
+                          ? 'Capture Unsupported'
+                          : _isCapturing
+                              ? 'Capturing...'
+                              : 'Save Frame',
+                    ),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       backgroundColor: Colors.blue,

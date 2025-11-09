@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -29,6 +31,7 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
   DateTime? _connectedAt;
   Timer? _durationTimer;
   String _connectionDuration = '00:00';
+  bool _isCapturing = false;
 
   @override
   void initState() {
@@ -68,6 +71,7 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
 
       // Set up connection state callback
       _manager.onConnectionStateChanged = (state) {
+        if (!mounted) return;
         setState(() {
           if (state == remote.RemoteConnectionState.connected) {
             _statusMessage = 'Connected';
@@ -86,14 +90,13 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
 
       // Set up peer disconnected callback
       _manager.onPeerDisconnected = () {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Receiver disconnected'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Receiver disconnected'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       };
 
       // Start sharing
@@ -129,13 +132,17 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
     });
   }
 
-  void _stopDurationTimer() {
+  void _stopDurationTimer({bool updateUi = true}) {
     _durationTimer?.cancel();
     _durationTimer = null;
     _connectedAt = null;
-    setState(() {
+    if (updateUi && mounted) {
+      setState(() {
+        _connectionDuration = '00:00';
+      });
+    } else {
       _connectionDuration = '00:00';
-    });
+    }
   }
 
   String _formatDuration(Duration duration) {
@@ -170,6 +177,46 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
     }
   }
 
+  Future<void> _captureLocalFrame() async {
+    if (_isCapturing || !_isSharing) return;
+
+    setState(() {
+      _isCapturing = true;
+    });
+
+    try {
+      final file = await _manager.captureLocalFrame();
+      if (!mounted) return;
+      final destinationMessage = (Platform.isIOS || Platform.isAndroid)
+          ? 'Saved to Photos'
+          : 'Saved to ${file.path}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Frame captured! $destinationMessage'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to capture: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCapturing = false;
+        });
+      } else {
+        _isCapturing = false;
+      }
+    }
+  }
+
   void _copyPairingCode() {
     if (_pairingCode != null) {
       Clipboard.setData(ClipboardData(text: _pairingCode!));
@@ -200,7 +247,7 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
 
   @override
   void dispose() {
-    _stopDurationTimer();
+    _stopDurationTimer(updateUi: false);
     _localRenderer.dispose();
     _manager.stop();
     super.dispose();
@@ -269,21 +316,24 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(color: Colors.blue, width: 2),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _pairingCode!,
-                                  style: const TextStyle(
-                                    fontSize: 32,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 4,
-                                    fontFamily: 'monospace',
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    _pairingCode!,
+                                    style: const TextStyle(
+                                      fontSize: 32,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 4,
+                                      fontFamily: 'monospace',
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Icon(Icons.copy, size: 20),
-                              ],
+                                  const SizedBox(width: 8),
+                                  const Icon(Icons.copy, size: 20),
+                                ],
+                              ),
                             ),
                           ),
                         )
@@ -325,9 +375,13 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
                                     : Colors.red,
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            _statusMessage,
-                            style: const TextStyle(fontSize: 16),
+                          Flexible(
+                            child: Text(
+                              _statusMessage,
+                              style: const TextStyle(fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ],
                       ),
@@ -349,30 +403,60 @@ class _ShareCameraScreenState extends State<ShareCameraScreen> {
                 // Control buttons
                 Padding(
                   padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 12,
                     children: [
-                      ElevatedButton.icon(
-                        onPressed: _isSharing ? _switchCamera : null,
-                        icon: const Icon(Icons.flip_camera_android),
-                        label: const Text('Switch Camera'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
+                      SizedBox(
+                        width: 160,
+                        child: ElevatedButton.icon(
+                          onPressed: _isSharing && !_isCapturing ? _captureLocalFrame : null,
+                          icon: _isCapturing
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.camera_outlined),
+                          label: FittedBox(
+                            child: Text(_isCapturing ? 'Capturing...' : 'Save Frame'),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
                           ),
                         ),
                       ),
-                      ElevatedButton.icon(
-                        onPressed: _stopSharing,
-                        icon: const Icon(Icons.stop),
-                        label: const Text('Stop Sharing'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 12,
+                      SizedBox(
+                        width: 160,
+                        child: ElevatedButton.icon(
+                          onPressed: _isSharing ? _switchCamera : null,
+                          icon: const Icon(Icons.flip_camera_android),
+                          label: const FittedBox(child: Text('Switch Camera')),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 160,
+                        child: ElevatedButton.icon(
+                          onPressed: _stopSharing,
+                          icon: const Icon(Icons.stop),
+                          label: const FittedBox(child: Text('Stop Sharing')),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
                           ),
                         ),
                       ),

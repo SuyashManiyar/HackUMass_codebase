@@ -11,6 +11,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
+import 'conversation/conversation_controller.dart';
 import 'screens/connect_camera_screen.dart';
 import 'screens/share_camera_screen.dart';
 import 'test_pipeline_page.dart';
@@ -73,14 +74,14 @@ class _MyHomePageState extends State<MyHomePage> {
   // For Android Emulator: use 'http://10.0.2.2:3000'
   // For Physical Device: use 'http://YOUR_COMPUTER_IP:3000' (e.g., 'http://192.168.1.100:3000')
   // For iOS Simulator: use 'http://localhost:3000'
-  static const String _serverUrl = 'http://172.31.35.36:3000';
-
+  static const String _serverUrl = 'http://10.0.0.52:3000';
+  
   // TODO: Replace with your Gemini API key
   // Get your API key from: https://makersuite.google.com/app/apikey
   static const String _apiKey = 'AIzaSyBjB9hCO3CSmWB4IZrvPHev1gdcP3Dzh_0';
   
   // TODO: Replace with your local API URL (e.g., 'http://192.168.1.100:8000/api/process-image')
-  static const String _apiUrl = 'http://172.31.93.144:8000/api/process-image';
+  static const String _apiUrl = 'http://10.0.0.52:8000/api/process-image';
 
   @override
   void initState() {
@@ -142,6 +143,7 @@ class _MyHomePageState extends State<MyHomePage> {
       });
     } else {
       // Start camera
+      await ConversationController.active?.interrupt();
       if (_cameras.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

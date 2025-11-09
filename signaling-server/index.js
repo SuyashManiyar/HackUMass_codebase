@@ -218,6 +218,15 @@ app.get('/stats', (req, res) => {
   });
 });
 
+// Root endpoint for basic info
+app.get('/', (req, res) => {
+  res.json({
+    message: 'HackUMass signaling server is running',
+    health: '/health',
+    stats: '/stats'
+  });
+});
+
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
