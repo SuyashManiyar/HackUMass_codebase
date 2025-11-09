@@ -33,6 +33,7 @@ android/build/
 .pub/
 /build/
 /coverage/
+.env
 
 # Symbolication related
 app.*.symbols

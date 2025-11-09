@@ -1,13 +1,18 @@
-import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:camera/camera.dart';
-import 'package:http/http.dart' as http;
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:camera/camera.dart';
+import 'package:flutter/material.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'screens/share_camera_screen.dart';
 import 'screens/connect_camera_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -50,6 +55,7 @@ class _MyHomePageState extends State<MyHomePage> {
   final ImagePicker _picker = ImagePicker();
   String? _description;
   bool _isLoading = false;
+  List<CameraDescription> _cameras = [];
   CameraController? _cameraController;
   bool _isCameraActive = false;
   bool _isConversationActive = false;
@@ -71,6 +77,55 @@ class _MyHomePageState extends State<MyHomePage> {
   // TODO: Replace with your local API URL (e.g., 'http://192.168.1.100:8000/api/process-image')
   static const String _apiUrl = 'http://172.31.93.144:8000/api/process-image';
 
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_initializeCameras());
+  }
+
+  Future<void> _initializeCameras() async {
+    try {
+      final cameras = await availableCameras();
+      if (!mounted) return;
+      setState(() {
+        _cameras = cameras;
+      });
+    } catch (e) {
+      debugPrint('Error loading cameras: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load cameras: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _captureImage() async {
+    try {
+      final pickedFile = await _picker.pickImage(source: ImageSource.camera);
+      if (pickedFile == null) {
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _image = File(pickedFile.path);
+        _description = null;
+      });
+    } catch (e) {
+      debugPrint('Error capturing image: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to capture image: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _toggleCamera() async {
     if (_isCameraActive) {
       // Stop camera
@@ -82,7 +137,7 @@ class _MyHomePageState extends State<MyHomePage> {
       });
     } else {
       // Start camera
-      if (cameras == null || cameras!.isEmpty) {
+      if (_cameras.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('No cameras available'),
@@ -93,7 +148,8 @@ class _MyHomePageState extends State<MyHomePage> {
       }
 
       try {
-        final camera = cameras!.first;
+        final camera = _cameras.first;
+        await _cameraController?.dispose();
         _cameraController = CameraController(
           camera,
           ResolutionPreset.high,
@@ -304,173 +360,173 @@ class _MyHomePageState extends State<MyHomePage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              // Remote camera options
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ShareCameraScreen(
-                                serverUrl: _serverUrl,
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 140),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                // Remote camera options
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ShareCameraScreen(
+                                  serverUrl: _serverUrl,
+                                ),
                               ),
+                            );
+                          },
+                          icon: const Icon(Icons.videocam),
+                          label: const Text('Share Camera'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
                             ),
-                          );
-                        },
-                        icon: const Icon(Icons.videocam),
-                        label: const Text('Share Camera'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
+                            backgroundColor: Colors.green,
+                            foregroundColor: Colors.white,
                           ),
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
                         ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ConnectCameraScreen(
-                                serverUrl: _serverUrl,
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ConnectCameraScreen(
+                                  serverUrl: _serverUrl,
+                                ),
                               ),
+                            );
+                          },
+                          icon: const Icon(Icons.link),
+                          label: const Text('Connect'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
                             ),
-                          );
-                        },
-                        icon: const Icon(Icons.link),
-                        label: const Text('Connect'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
                           ),
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              const Divider(),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                onPressed: _captureImage,
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Open Local Camera'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 20),
-            if (_image != null)
-              Column(
-                children: [
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: _captureImage,
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Open Local Camera'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if (_image != null)
+                  Column(
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey, width: 2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.file(
+                            _image!,
+                            width: 300,
+                            height: 300,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        onPressed: _isLoading ? null : _describeImage,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.auto_awesome),
+                        label: Text(_isLoading ? 'Analyzing...' : 'Describe Image'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        ),
+                      ),
+                      if (_description != null) ...[
+                        const SizedBox(height: 20),
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey[300]!),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Description:',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _description!,
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  )
+                else
                   Container(
-                    margin: const EdgeInsets.all(16),
+                    width: 300,
+                    height: 300,
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey, width: 2),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.file(
-                        _image!,
-                        width: 300,
-                        height: 300,
-                        fit: BoxFit.cover,
+                    child: const Center(
+                      child: Text(
+                        'No image captured',
+                        style: TextStyle(color: Colors.grey),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    onPressed: _isLoading ? null : _describeImage,
-                    icon: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.auto_awesome),
-                    label: Text(_isLoading ? 'Analyzing...' : 'Describe Image'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                    ),
-                  ),
-                  if (_description != null) ...[
-                    const SizedBox(height: 20),
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Description:',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _description!,
-                            style: const TextStyle(fontSize: 14),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              )
-            else
-              Container(
-                width: 300,
-                height: 300,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey, width: 2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Center(
-                  child: Text(
-                    'No image captured',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-              ),
+              ],
             ),
-          
-          // Buttons at the bottom
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
             child: Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(16.0),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.7),
@@ -479,7 +535,6 @@ class _MyHomePageState extends State<MyHomePage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Start Conversation button (only when camera is active)
                     if (_isCameraActive)
                       ElevatedButton.icon(
                         onPressed: _isConversationActive ? _stopConversation : _startConversation,
@@ -492,7 +547,6 @@ class _MyHomePageState extends State<MyHomePage> {
                         ),
                       ),
                     if (_isCameraActive) const SizedBox(height: 12),
-                    // Toggle Camera button
                     ElevatedButton.icon(
                       onPressed: _toggleCamera,
                       icon: Icon(_isCameraActive ? Icons.camera_alt_outlined : Icons.camera_alt),
