@@ -16,6 +16,7 @@ class SlideProcessResult {
     required this.slideDetected,
     required this.clipCosine,
     this.textSimilarity,
+    this.slideNumber,
     this.boundingBox,
     this.summary,
   });
@@ -24,6 +25,7 @@ class SlideProcessResult {
   final bool slideDetected;
   final double clipCosine;
   final double? textSimilarity;
+  final int? slideNumber;
   final List<SlidePoint>? boundingBox;
   final Map<String, dynamic>? summary;
 }
@@ -85,6 +87,9 @@ class SlideClient {
       textSimilarity: payload['text_similarity'] is num
           ? (payload['text_similarity'] as num).toDouble()
           : double.tryParse('${payload['text_similarity']}'),
+      slideNumber: payload['slide_number'] is num
+          ? (payload['slide_number'] as num).round()
+          : int.tryParse('${payload['slide_number']}'),
       boundingBox: _parseBoundingBox(payload['bounding_box']),
       summary: payload['summary'] is Map<String, dynamic>
           ? Map<String, dynamic>.from(payload['summary'] as Map)

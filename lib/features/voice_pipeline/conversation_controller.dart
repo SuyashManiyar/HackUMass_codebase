@@ -18,12 +18,12 @@ class ConversationController {
     ElevenLabsSttService? sttService,
     ElevenLabsTtsService? ttsService,
     LlmService? llmService,
-  })  : _audio = audioController ?? AudioPlaybackController(),
-        _recorder = recorder ?? VoiceRecorder(),
-        _stt = sttService ?? ElevenLabsSttService(apiKey: Env.elevenLabsApiKey),
-        _tts = ttsService ?? ElevenLabsTtsService(apiKey: Env.elevenLabsApiKey),
-        _llm = llmService ?? LlmService(apiKey: Env.openRouterApiKey) {
-    if (_stt.apiKey.isEmpty || _tts.apiKey.isEmpty || _llm.apiKey.isEmpty) {
+  }) : _audio = audioController ?? AudioPlaybackController(),
+       _recorder = recorder ?? VoiceRecorder(),
+       _stt = sttService ?? ElevenLabsSttService(apiKey: Env.elevenLabsApiKey),
+       _tts = ttsService ?? ElevenLabsTtsService(apiKey: Env.elevenLabsApiKey),
+       _llm = llmService ?? LlmService(baseUrl: Env.fastApiBaseUrl) {
+    if (_stt.apiKey.isEmpty || _tts.apiKey.isEmpty) {
       throw StateError('Missing API keys for voice pipeline');
     }
 
@@ -58,8 +58,8 @@ class ConversationController {
   bool get isProcessing => _isProcessing;
   bool get isPlaying => _pipeline.isPlaying;
   Stream<bool> get speakingStream => _audio.player.onPlayerStateChanged.map(
-        (state) => state == PlayerState.playing,
-      );
+    (state) => state == PlayerState.playing,
+  );
 
   Future<void> start() async {
     if (_isRecording) return;
@@ -128,5 +128,3 @@ class ConversationController {
     }
   }
 }
-
-

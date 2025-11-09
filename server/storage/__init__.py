@@ -1,7 +1,21 @@
-"""Storage helpers for persisting slide state."""
+"""Storage helpers for persisting slide state and history."""
 
-from .manager import SlideState, load_last_state, save_last_state
+from .manager import (
+    SlideState,
+    append_slide_history,
+    load_last_state,
+    load_slide_history,
+    reset_slide_history,
+    save_last_state,
+)
 
-__all__ = ["SlideState", "load_last_state", "save_last_state"]
+__all__ = [
+    "SlideState",
+    "append_slide_history",
+    "load_last_state",
+    "load_slide_history",
+    "reset_slide_history",
+    "save_last_state",
+]
 
 

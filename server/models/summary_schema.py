@@ -51,5 +51,6 @@ class ProcessSlideResponse(BaseModel):
     slide_detected: bool
     bounding_box: Optional[List[BoundingBoxPoint]] = None
     summary: Optional[GeminiSummary] = None
+    slide_number: Optional[int] = None
 
 

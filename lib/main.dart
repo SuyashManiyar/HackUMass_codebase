@@ -198,10 +198,15 @@ class _MyHomePageState extends State<MyHomePage> {
     final summary = result.summary;
     if (summary != null) {
       if (result.newSlide || !_slideRepository.hasSummary) {
-        _slideRepository.save(summary: summary);
+        _slideRepository.save(
+          summary: summary,
+          slideNumber: result.slideNumber,
+        );
       }
       final latest = _slideRepository.latestSummary ?? summary;
-      _appState.updateSlide(summary: latest);
+      final latestNumber =
+          _slideRepository.latestSlideNumber ?? result.slideNumber;
+      _appState.updateSlide(summary: latest, slideNumber: latestNumber);
     }
   }
 
@@ -241,6 +246,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     final summary = _appState.latestSummary;
+    final slideNumber = _appState.latestSlideNumber;
     final jsonSummary = summary == null
         ? 'No slide processed yet.'
         : const JsonEncoder.withIndent('  ').convert(summary);
@@ -435,6 +441,15 @@ class _MyHomePageState extends State<MyHomePage> {
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           const SizedBox(height: 8),
+                          if (slideNumber != null)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                'Slide #$slideNumber',
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(color: Colors.grey.shade700),
+                              ),
+                            ),
                           Container(
                             width: double.infinity,
                             decoration: BoxDecoration(

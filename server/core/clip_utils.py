@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 import imagehash
 import numpy as np
@@ -36,10 +36,28 @@ def embed_image(image_np: np.ndarray) -> torch.Tensor:
     return vec.cpu()
 
 
+def embed_text(text: str) -> np.ndarray:
+    """Return a normalized CLIP text embedding for the provided string."""
+    if not text:
+        text = " "
+    tokens = open_clip.tokenize([text], truncate=True).to(_device)
+    with torch.no_grad():
+        vec = clip_model.encode_text(tokens)
+        vec = torch.nn.functional.normalize(vec, dim=-1)
+    return vec.cpu().numpy()[0].astype(np.float32)
+
+
 def cosine_sim(vec1: torch.Tensor, vec2: torch.Tensor) -> float:
     if vec1.ndim != 2 or vec2.ndim != 2:
         raise ValueError("Vectors must be 2D tensors with shape [1, D].")
     return float(torch.matmul(vec1, vec2.T).item())
+
+
+def cosine_np(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    vec1 = vec1.astype(np.float32)
+    vec2 = vec2.astype(np.float32)
+    denom = (np.linalg.norm(vec1) * np.linalg.norm(vec2)) + 1e-12
+    return float(np.clip(np.dot(vec1, vec2) / denom, -1.0, 1.0))
 
 
 def compute_phash(image_np: np.ndarray) -> imagehash.ImageHash:

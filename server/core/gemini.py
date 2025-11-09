@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import cv2
 from google import genai
@@ -146,5 +146,61 @@ def summarize_slide(
         return json.loads(raw_text)
     except json.JSONDecodeError as exc:
         raise GeminiError(f"Gemini response was not valid JSON: {exc}") from exc
+
+
+def answer_question_with_context(
+    *,
+    question: str,
+    context: str,
+    conversation: str = "",
+    model: str = DEFAULT_MODEL_NAME,
+    api_key: Optional[str] = None,
+) -> str:
+    """Generate an answer restricted to the provided slide context."""
+    client = _get_client(api_key)
+
+    prompt_sections = [
+        "You are a lecture assistant who must answer using ONLY the provided slide context and recent conversation.",
+        "If the context is insufficient or unrelated to the question, reply with a brief statement that you do not know from the slides.",
+        "Respond in one to four concise sentences.",
+        "",
+        "Slide context:",
+        context,
+    ]
+
+    if conversation.strip():
+        prompt_sections.extend(
+            [
+                "",
+                "Recent conversation:",
+                conversation,
+            ]
+        )
+
+    prompt_sections.extend(
+        [
+            "",
+            f"Question: {question}",
+            "Answer:",
+        ]
+    )
+    prompt = "\n".join(prompt_sections)
+
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=[prompt],
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise GeminiError(f"Gemini answer generation failed: {exc}") from exc
+
+    answer = (response.text or "").strip()
+    if answer.startswith("```"):
+        answer = answer.strip("` \n")
+        if answer.lower().startswith("json"):
+            answer = answer[4:].strip()
+    if not answer:
+        raise GeminiError("Gemini returned an empty answer.")
+    return answer
 
 

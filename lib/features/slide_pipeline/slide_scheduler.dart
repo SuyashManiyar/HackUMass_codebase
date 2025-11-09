@@ -61,10 +61,12 @@ class SlideScheduler {
       final summary = result.summary;
       if (summary != null) {
         if (result.newSlide || !_repository.hasSummary) {
-          _repository.save(summary: summary);
+          _repository.save(summary: summary, slideNumber: result.slideNumber);
         }
         final latest = _repository.latestSummary ?? summary;
-        _appState.updateSlide(summary: latest);
+        final latestNumber =
+            _repository.latestSlideNumber ?? result.slideNumber;
+        _appState.updateSlide(summary: latest, slideNumber: latestNumber);
       }
     } catch (error, stackTrace) {
       debugPrint('SlideScheduler: failed to process slide - $error');
