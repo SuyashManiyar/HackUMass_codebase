@@ -42,16 +42,16 @@ class PipelineService {
     final openRouterApiKey = dotenv.env['OPNRTR_API_KEY']!;
 
     final prompt ='''
-You are an AI assistant answering a user's question about a presentation slide. You will be given a JSON object that contains all the known information from the slide.
+You are an AI assistant answering a user's question about a presentation slide.
+You will be given a JSON object with all known slide content.
 
-CRITICAL CONSTRAINT: Your response will be converted to audio and must be readable in 8-10 seconds. This means your answer MUST NOT EXCEED 25 WORDS.
+CRITICAL CONSTRAINT: Your response will be converted to audio. It MUST NOT EXCEED 25 WORDS (8-10 seconds).
 
-Rules:
-1.  Prioritize JSON First: Your first priority is to answer the question using only the `JSON Context`. If the JSON contains the answer, use it.
-2.  Use World Knowledge (If Related): If the JSON cannot answer the question, but the question is related to the slide's topics (like its `title` or `summary`), you may use your general knowledge to provide a brief answer.
-3.  Decline Unrelated Questions: If the question is not related to the slide's content at all (e.g., asking about the weather, sports, or a different topic), state: "That information isn't available on this slide."
-4.  Be Direct: Answer the question immediately. Do not use pleasantries like "Hello" or "Sure!"
-5.  Sound Natural: Do not say "According to the JSON..." or "The JSON summary says...".
+Instructions:
+1.  Answer the question directly. No "Hello" or "Sure". Do not say "According to the JSON...".
+2.  First, try to answer using only the $imageSummary.
+3.  If the $imageSummary doesn't have the answer, but the question is *related* to the slide's topic, use your general knowledge for a brief answer.
+4.  If the question is completely *unrelated* to the slide, you must respond with: "It's not covered in the slides."
 
 JSON Context:
 $imageSummary
@@ -59,7 +59,8 @@ $imageSummary
 User Question:
 $transcription
 
-Your 10-Second Answer (25 words max):''';
+Your 10-Second Answer (25 words max):
+''';
 
     try {
       final response = await http.post(

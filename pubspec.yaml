@@ -39,6 +39,7 @@ dependencies:
   speech_to_text: ^7.3.0
   flutter_tts: ^4.2.3
   http: ^1.1.0
+  camera: ^0.10.5+5
   flutter_dotenv: ^5.1.0
 
 dev_dependencies:
