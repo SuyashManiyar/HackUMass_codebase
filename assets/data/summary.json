@@ -1,0 +1,18 @@
+{
+  "title": [
+    "Relevance feedback"
+  ],
+  "enumeration": [],
+  "equation": [],
+  "table": [],
+  "image": [
+    "A flowchart illustrating the process of relevance feedback in an information retrieval system. The flow starts with a 'Query' entering a 'Retrieval Engine' which interacts with a 'Document collection'. The engine outputs 'Results' (documents with scores, e.g., d1 3.5, d2 2.4). These results are presented for 'User judgment', where the user provides explicit 'Judgments' (e.g., d1 +, d2 -, d3 +). These judgments are fed into a 'Feedback' component. The 'Feedback' component then generates an 'Updated query' which is sent back to the 'Retrieval Engine' for an improved search, thereby closing the feedback loop. There is also a red arrow from 'Document collection' to 'Feedback' and from 'Feedback' back to 'Document collection', suggesting that feedback might also influence the document collection itself."
+  ],
+  "code": [],
+  "slide_number": [
+    "4"
+  ],
+  "summary": [
+    "This slide provides a conceptual overview of 'Relevance feedback' in information retrieval through a detailed flowchart. The process begins with an initial 'Query' that is submitted to a 'Retrieval Engine'. This engine processes the query against a 'Document collection' to generate a list of ranked 'Results', complete with relevance scores. These results are then presented to the user for 'User judgment', where the user explicitly indicates the relevance of specific documents (marked as '+' for relevant or '-' for non-relevant). These 'Judgments' are then fed into a 'Feedback' component, which plays a crucial role in refining the search process. The feedback mechanism uses these judgments to produce an 'Updated query', which is then re-submitted to the 'Retrieval Engine' to retrieve more pertinent results in a subsequent iteration. Additionally, the diagram suggests that the 'Feedback' component might also interact with and potentially influence the 'Document collection' itself, although the primary loop shown is query refinement. The slide footer indicates it's part of 'CS4780: Information Retrieval' from 'CS@UVa' and is slide number '4'."
+  ]
+}
