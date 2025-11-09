@@ -1,6 +1,10 @@
-# GuideLens
+# SightScribe
 
-GuideLens is a mobile-first assistant for classroom and conference settings. It watches a presentation through the device camera, decides when a new slide appears, produces structured summaries with Gemini, and lets attendees ask voice questions that are answered in context. When the capture session ends it builds a session recap you can export and review.
+SightScribe is an AI companion designed to make lectures and presentations accessible — especially for people with visual impairments. Point your phone at the screen and SightScribe uses computer vision (CLIP image embeddings plus OCR text matching) to detect slide changes, interprets the on-screen content with Gemini, and turns it into spoken explanations in real time.
+
+Learners ask questions about the current slide—or about earlier slides they couldn’t see—using ElevenLabs speech-to-text. SightScribe routes the transcribed query with the right context to a lightweight LLM for fast reasoning, then returns the answer through ElevenLabs text-to-speech so the conversation never disrupts the presenter.
+
+Instead of passively listening, users interact with the material as it happens: asking follow-ups, revisiting previous slides, and hearing details that would otherwise be missed. See through sound. Learn without barriers.
 
 ## Environment Setup
 
