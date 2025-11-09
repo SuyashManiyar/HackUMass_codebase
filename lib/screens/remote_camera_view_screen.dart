@@ -102,17 +102,27 @@ class _RemoteCameraViewScreenState extends State<RemoteCameraViewScreen> {
     });
 
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Frame capture feature coming soon!'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      if (widget.manager.remoteStream == null) {
+        throw Exception('No remote stream available');
+      }
+
+      // Capture frame from remote stream
+      final file = await widget.manager.captureFrame(widget.manager.remoteStream!);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Frame captured! Saved to: ${file.path}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to capture frame: ${e.toString()}'),
+            content: Text('Failed to capture: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );

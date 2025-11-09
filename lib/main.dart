@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:camera/camera.dart';
+import 'package:http/http.dart' as http;
 import 'dart:io';
 import 'screens/share_camera_screen.dart';
 import 'screens/connect_camera_screen.dart';
@@ -48,6 +50,13 @@ class _MyHomePageState extends State<MyHomePage> {
   final ImagePicker _picker = ImagePicker();
   String? _description;
   bool _isLoading = false;
+  CameraController? _cameraController;
+  bool _isCameraActive = false;
+  bool _isConversationActive = false;
+  Timer? _frameCaptureTimer;
+  Uint8List? _currentFrame;
+  Map<String, dynamic>? _apiResponse;
+  bool _isSendingToApi = false;
   
   // Signaling server URL - IMPORTANT: Change this based on your setup
   // For Android Emulator: use 'http://10.0.2.2:3000'
@@ -58,24 +67,179 @@ class _MyHomePageState extends State<MyHomePage> {
   // TODO: Replace with your Gemini API key
   // Get your API key from: https://makersuite.google.com/app/apikey
   static const String _apiKey = 'AIzaSyBjB9hCO3CSmWB4IZrvPHev1gdcP3Dzh_0';
+  
+  // TODO: Replace with your local API URL (e.g., 'http://192.168.1.100:8000/api/process-image')
+  static const String _apiUrl = 'http://172.31.93.144:8000/api/process-image';
 
-  Future<void> _captureImage() async {
+  Future<void> _toggleCamera() async {
+    if (_isCameraActive) {
+      // Stop camera
+      _stopConversation();
+      await _cameraController?.dispose();
+      setState(() {
+        _cameraController = null;
+        _isCameraActive = false;
+      });
+    } else {
+      // Start camera
+      if (cameras == null || cameras!.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No cameras available'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      try {
+        final camera = cameras!.first;
+        _cameraController = CameraController(
+          camera,
+          ResolutionPreset.high,
+          enableAudio: false,
+        );
+
+        await _cameraController!.initialize();
+
+        if (mounted) {
+          setState(() {
+            _isCameraActive = true;
+          });
+        }
+      } catch (e) {
+        print('Error initializing camera: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error starting camera: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _startConversation() {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
+    setState(() {
+      _isConversationActive = true;
+    });
+
+    // Capture initial frame
+    _captureFrame();
+
+    // Set up timer to capture frame every 5 seconds
+    _frameCaptureTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _captureFrame();
+    });
+  }
+
+  void _stopConversation() {
+    _frameCaptureTimer?.cancel();
+    _frameCaptureTimer = null;
+    setState(() {
+      _isConversationActive = false;
+      _currentFrame = null;
+      _apiResponse = null;
+    });
+  }
+
+  Future<void> _captureFrame() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
     try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
-      );
-
-      if (image != null) {
+      final image = await _cameraController!.takePicture();
+      final imageBytes = await File(image.path).readAsBytes();
+      
+      if (mounted) {
         setState(() {
-          _image = File(image.path);
-          _description = null; // Clear previous description
+          _currentFrame = imageBytes;
         });
       }
+      
+      // Send image to API
+      await _sendImageToApi(imageBytes);
     } catch (e) {
-      // Handle error - you might want to show a snackbar or dialog
-      print('Error capturing image: $e');
+      print('Error capturing frame: $e');
     }
+  }
+  
+  Future<void> _sendImageToApi(Uint8List imageBytes) async {
+    if (_apiUrl.isEmpty || _apiUrl == 'YOUR_API_URL_HERE') {
+      print('API URL not configured');
+      return;
+    }
+
+    setState(() {
+      _isSendingToApi = true;
+    });
+
+    try {
+      // Create multipart request
+      final request = http.MultipartRequest('POST', Uri.parse(_apiUrl));
+      
+      // Add image file to the request
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          imageBytes,
+          filename: 'frame_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        ),
+      );
+
+      // Send request
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        // Parse JSON response
+        final jsonResponse = json.decode(response.body) as Map<String, dynamic>;
+        
+        if (mounted) {
+          setState(() {
+            _apiResponse = jsonResponse;
+            _isSendingToApi = false;
+          });
+        }
+      } else {
+        print('API request failed with status: ${response.statusCode}');
+        if (mounted) {
+          setState(() {
+            _apiResponse = {
+              'error': 'API request failed',
+              'status_code': response.statusCode,
+              'message': response.body,
+            };
+            _isSendingToApi = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error sending image to API: $e');
+      if (mounted) {
+        setState(() {
+          _apiResponse = {
+            'error': 'Failed to connect to API',
+            'message': e.toString(),
+          };
+          _isSendingToApi = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopConversation();
+    _cameraController?.dispose();
+    super.dispose();
   }
 
   Future<void> _describeImage() async {
@@ -299,9 +463,51 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
               ),
-            ],
+            ),
+          
+          // Buttons at the bottom
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+              ),
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Start Conversation button (only when camera is active)
+                    if (_isCameraActive)
+                      ElevatedButton.icon(
+                        onPressed: _isConversationActive ? _stopConversation : _startConversation,
+                        icon: Icon(_isConversationActive ? Icons.stop : Icons.chat),
+                        label: Text(_isConversationActive ? 'Stop Conversation' : 'Start Conversation'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          minimumSize: const Size(double.infinity, 50),
+                          backgroundColor: _isConversationActive ? Colors.red : Colors.green,
+                        ),
+                      ),
+                    if (_isCameraActive) const SizedBox(height: 12),
+                    // Toggle Camera button
+                    ElevatedButton.icon(
+                      onPressed: _toggleCamera,
+                      icon: Icon(_isCameraActive ? Icons.camera_alt_outlined : Icons.camera_alt),
+                      label: Text(_isCameraActive ? 'Stop Camera' : 'Start Live Camera'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        minimumSize: const Size(double.infinity, 50),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
