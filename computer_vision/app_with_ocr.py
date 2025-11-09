@@ -3,8 +3,20 @@ from fastapi.responses import JSONResponse
 import cv2
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
+import easyocr
+from difflib import SequenceMatcher
+import ssl
+import time
 
-app = FastAPI(title="Slide Comparison API - SSIM Only", version="1.0")
+# Fix SSL certificate verification
+ssl._create_default_https_context = ssl._create_unverified_context
+
+# Initialize EasyOCR reader
+print("Initializing EasyOCR...")
+reader = easyocr.Reader(['en'], gpu=False)
+print("EasyOCR ready!")
+
+app = FastAPI(title="Slide Comparison API", version="1.0")
 
 # Constants
 WARPED_WIDTH = 1000
@@ -42,9 +54,10 @@ def find_screen(frame, last_corners=None):
     """Find the largest 4-sided contour (slide/screen) in the frame"""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
+    
     adaptive_thresh = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 11, 2
     )
     v = np.median(blurred)
     lower = int(max(0, 0.7 * v))
@@ -52,9 +65,7 @@ def find_screen(frame, last_corners=None):
     canny_edged = cv2.Canny(blurred, lower, upper)
     edged = cv2.bitwise_or(canny_edged, adaptive_thresh)
 
-    contours, _ = cv2.findContours(
-        edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-    )
+    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
 
@@ -77,7 +88,7 @@ def find_screen(frame, last_corners=None):
     best_candidate = None
     if last_corners is not None:
         last_cX, last_cY = get_centroid(last_corners)
-        min_dist = float("inf")
+        min_dist = float('inf')
         for cand in valid_candidates:
             cand_cX, cand_cY = get_centroid(cand)
             if cand_cX is None:
@@ -109,14 +120,20 @@ def extract_bbox_with_padding(frame, corners, pad=30):
 
 def detect_and_crop_slide(frame):
     """Detect slide in frame and return cropped image"""
+    start_time = time.time()
     corners = find_screen(frame)
-
+    detection_time = time.time() - start_time
+    
     if corners is None:
         # If no slide detected, return original frame
-        return frame, False
-
+        return frame, False, detection_time
+    
+    crop_start = time.time()
     cropped = extract_bbox_with_padding(frame, corners, pad=EXTRA_PAD)
-    return cropped, True
+    crop_time = time.time() - crop_start
+    
+    total_time = detection_time + crop_time
+    return cropped, True, total_time
 
 
 # -------------------------------
@@ -129,18 +146,58 @@ def preprocess_gray(img):
     return g
 
 
+def extract_text_ocr(img):
+    """Extract text from image using EasyOCR"""
+    results = reader.readtext(img)
+    text = ' '.join([r[1] for r in results])
+    return text.strip()
+
+
+def calculate_text_similarity(text1, text2):
+    """Calculate character-level similarity between two texts"""
+    if not text1 and not text2:
+        return 1.0
+    if not text1 or not text2:
+        return 0.0
+    return SequenceMatcher(None, text1, text2).ratio()
+
+
 def compare_images(img1, img2):
-    """Compare two images and return SSIM score"""
+    """Compare two images and return SSIM score, OCR texts, and similarity"""
+    timings = {}
+    
     # Preprocess for SSIM
+    start_time = time.time()
     gray1 = preprocess_gray(img1)
     gray2 = preprocess_gray(img2)
-
+    timings["preprocessing"] = round(time.time() - start_time, 4)
+    
     # Calculate SSIM (image similarity)
+    start_time = time.time()
     ssim_score = ssim(gray1, gray2)
-
+    timings["ssim_calculation"] = round(time.time() - start_time, 4)
+    
+    # Extract text using OCR
+    start_time = time.time()
+    text1 = extract_text_ocr(img1)
+    timings["ocr_image1"] = round(time.time() - start_time, 4)
+    
+    start_time = time.time()
+    text2 = extract_text_ocr(img2)
+    timings["ocr_image2"] = round(time.time() - start_time, 4)
+    
+    # Calculate text similarity
+    start_time = time.time()
+    text_similarity = calculate_text_similarity(text1, text2)
+    timings["text_similarity"] = round(time.time() - start_time, 4)
+    
     return {
         "ssim_score": float(round(ssim_score, 4)),
-        "are_same_slide": bool(ssim_score > 0.95),
+        "ocr_similarity": float(round(text_similarity, 4)),
+        "image1_text": text1,
+        "image2_text": text2,
+        "are_same_slide": bool(ssim_score > 0.95 and text_similarity > 0.95),
+        "timings": timings
     }
 
 
@@ -148,60 +205,86 @@ def compare_images(img1, img2):
 # API Endpoints
 # -------------------------------
 @app.post("/compare/")
-async def compare_two_images(
-    image1: UploadFile = File(...), image2: UploadFile = File(...)
-):
+async def compare_two_images(image1: UploadFile = File(...), image2: UploadFile = File(...)):
     """
-    Upload two images, detect and crop slides, then compare them using SSIM.
-    Returns SSIM score and whether they're the same slide.
+    Upload two images, detect and crop slides, then compare them.
+    Returns SSIM score, OCR similarity, extracted text, and whether they're the same slide.
     """
     try:
+        total_start = time.time()
+        timings = {}
+        
         # Read image1
+        start_time = time.time()
         contents1 = await image1.read()
         nparr1 = np.frombuffer(contents1, np.uint8)
         img1 = cv2.imdecode(nparr1, cv2.IMREAD_COLOR)
-
+        timings["read_image1"] = round(time.time() - start_time, 4)
+        
         # Read image2
+        start_time = time.time()
         contents2 = await image2.read()
         nparr2 = np.frombuffer(contents2, np.uint8)
         img2 = cv2.imdecode(nparr2, cv2.IMREAD_COLOR)
-
+        timings["read_image2"] = round(time.time() - start_time, 4)
+        
         if img1 is None or img2 is None:
             return JSONResponse(
-                status_code=400, content={"error": "Invalid image file(s)"}
+                status_code=400,
+                content={"error": "Invalid image file(s)"}
             )
-
+        
         # Detect and crop slides from both images
-        cropped1, detected1 = detect_and_crop_slide(img1)
-        cropped2, detected2 = detect_and_crop_slide(img2)
-
+        start_time = time.time()
+        cropped1, detected1, detect_time1 = detect_and_crop_slide(img1)
+        timings["detect_crop_image1"] = round(time.time() - start_time, 4)
+        
+        start_time = time.time()
+        cropped2, detected2, detect_time2 = detect_and_crop_slide(img2)
+        timings["detect_crop_image2"] = round(time.time() - start_time, 4)
+        
         # Compare the cropped images
+        start_time = time.time()
         result = compare_images(cropped1, cropped2)
-
+        timings["comparison"] = round(time.time() - start_time, 4)
+        
+        # Calculate total time
+        timings["total_time"] = round(time.time() - total_start, 4)
+        
         # Add detection info to result
         result["slide1_detected"] = detected1
         result["slide2_detected"] = detected2
-
+        
+        # Merge timings
+        result["timings"]["read_image1"] = timings["read_image1"]
+        result["timings"]["read_image2"] = timings["read_image2"]
+        result["timings"]["detect_crop_image1"] = timings["detect_crop_image1"]
+        result["timings"]["detect_crop_image2"] = timings["detect_crop_image2"]
+        result["timings"]["comparison_total"] = timings["comparison"]
+        result["timings"]["total_time"] = timings["total_time"]
+        
         return result
-
+        
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
 
 
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
     return {
-        "message": "Slide Comparison API - SSIM Only (Fast)",
+        "message": "Slide Comparison API with Auto-Detection",
         "endpoint": "/compare/",
         "method": "POST",
         "parameters": "image1 and image2 (files)",
-        "description": "Automatically detects and crops slides, then compares using SSIM only",
-        "docs": "/docs",
+        "description": "Automatically detects and crops slides from images before comparison",
+        "docs": "/docs"
     }
 
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)
