@@ -1,23 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'core/app_state.dart';
-import 'core/env.dart';
 import 'features/camera/camera_controller.dart';
 import 'features/camera/camera_capture_service.dart';
-import 'features/screens/connect_camera_screen.dart';
-import 'features/screens/share_camera_screen.dart';
-import 'features/screens/test_pipeline_page.dart';
-import 'features/screens/end_summary_page.dart';
 import 'features/slide_pipeline/slide_client.dart';
 import 'features/slide_pipeline/slide_repo.dart';
 import 'features/slide_pipeline/slide_scheduler.dart';
-import 'features/slide_pipeline/slide_pipeline_test_page.dart';
+import 'features/voice_pipeline/conversation_controller.dart';
+import 'screens/end_summary_page.dart';
 import 'services/fastapi_client.dart';
 
 Future<void> main() async {
@@ -61,17 +56,25 @@ class _MyHomePageState extends State<MyHomePage> {
   late final FastApiClient _fastApiClient;
   late final SlideClient _slideClient;
   late final CameraCaptureService _cameraCapture;
-  late final SlideScheduler _slideScheduler;
   late final SlideCameraController _slideCamera;
+  late final SlideScheduler _slideScheduler;
+
+  ConversationController? _conversationController;
+  StreamSubscription<bool>? _speakingSubscription;
 
   List<CameraDescription> _availableCameras = [];
   bool _initializingCameras = true;
   bool _initializingCameraController = false;
   bool _cameraReady = false;
-  bool _schedulerActive = false;
   bool _processingSlide = false;
-  Uint8List? _lastCapturedFrame;
   String? _errorMessage;
+
+  bool _voiceRecording = false;
+  bool _voiceProcessing = false;
+  bool _voiceSpeaking = false;
+  String _voiceTranscript = '';
+  String _voiceAnswer = '';
+  String? _voiceError;
 
   @override
   void initState() {
@@ -79,14 +82,30 @@ class _MyHomePageState extends State<MyHomePage> {
     _fastApiClient = FastApiClient();
     _slideClient = SlideClient(apiClient: _fastApiClient);
     _cameraCapture = CameraCaptureService();
+    _slideCamera = SlideCameraController(captureService: _cameraCapture);
     _slideScheduler = SlideScheduler(
       camera: _cameraCapture,
       client: _slideClient,
       repository: _slideRepository,
       appState: _appState,
     );
-    _slideCamera = SlideCameraController(captureService: _cameraCapture);
     _appState.addListener(_handleAppStateUpdate);
+
+    try {
+      _conversationController =
+          ConversationController(repository: _slideRepository);
+      _speakingSubscription =
+          _conversationController!.speakingStream.listen((speaking) {
+        if (!mounted) return;
+        setState(() {
+          _voiceSpeaking = speaking;
+        });
+      });
+    } catch (error) {
+      debugPrint('Voice pipeline unavailable: $error');
+      _voiceError = 'Voice pipeline unavailable: $error';
+    }
+
     unawaited(_bootstrap());
   }
 
@@ -133,6 +152,7 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         _cameraReady = true;
       });
+      _slideScheduler.start();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -148,119 +168,104 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  Future<void> _startScheduler() async {
-    await _initializeCamera();
-    if (!_cameraReady) return;
-
-    _slideScheduler.start();
+  Future<void> _stopCamera() async {
+    if (!_cameraReady || _initializingCameraController) return;
     setState(() {
-      _schedulerActive = true;
-    });
-  }
-
-  void _stopScheduler() {
-    _slideScheduler.stop();
-    setState(() {
-      _schedulerActive = false;
-    });
-  }
-
-  Future<void> _captureOnce() async {
-    await _initializeCamera();
-    if (!_cameraReady) return;
-
-    final frame = await _cameraCapture.captureFrame();
-    if (frame == null) {
-      setState(() {
-        _errorMessage = 'Failed to capture a frame from the camera.';
-      });
-      return;
-    }
-
-    setState(() {
-      _lastCapturedFrame = frame;
-      _errorMessage = null;
+      _initializingCameraController = true;
     });
 
-    _appState.setProcessing(true);
     try {
-      final result = await _slideClient.processSlide(frame);
-      _applySlideResult(result);
-    } catch (error) {
+      _slideScheduler.stop();
+      await _slideCamera.stop();
+      if (!mounted) return;
       setState(() {
-        _errorMessage = 'Slide processing failed: $error';
+        _cameraReady = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Unable to stop camera: $error';
       });
     } finally {
-      _appState.setProcessing(false);
-    }
-  }
-
-  void _applySlideResult(SlideProcessResult result) {
-    final summary = result.summary;
-    if (summary != null) {
-      if (result.newSlide || !_slideRepository.hasSummary) {
-        _slideRepository.save(
-          summary: summary,
-          slideNumber: result.slideNumber,
-        );
+      if (mounted) {
+        setState(() {
+          _initializingCameraController = false;
+        });
       }
-      final latest = _slideRepository.latestSummary ?? summary;
-      final latestNumber =
-          _slideRepository.latestSlideNumber ?? result.slideNumber;
-      _appState.updateSlide(summary: latest, slideNumber: latestNumber);
     }
   }
 
-  void _openTestPipeline() {
-    final summary = _appState.latestSummary;
-    if (summary == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Capture a slide before testing the voice pipeline.'),
-        ),
-      );
+  Future<void> _toggleVoice() async {
+    final controller = _conversationController;
+    if (controller == null) {
+      setState(() {
+        _voiceError ??= 'Voice assistant is unavailable.';
+      });
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => TestPipelinePage(
-          repository: _slideRepository,
-          summary: summary,
-        ),
-      ),
-    );
-  }
-
-  void _openEndSummary() {
-    final history = _slideRepository.history;
-    if (history.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Process at least one slide before viewing the session summary.'),
-        ),
-      );
+    if (!_slideRepository.hasSummary) {
+      setState(() {
+        _voiceError = 'Capture a slide before asking a question.';
+      });
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => EndSummaryPage(
-          slideContexts: history.toList(),
-        ),
-      ),
-    );
-  }
-  void _openSlidePipelineTester() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const SlidePipelineTestPage()),
-    );
+    if (_voiceProcessing) {
+      return;
+    }
+
+    if (_voiceRecording) {
+      setState(() {
+        _voiceRecording = false;
+        _voiceProcessing = true;
+      });
+      try {
+        final result = await controller.stop();
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _voiceProcessing = false;
+          if (result != null) {
+            _voiceTranscript = result.transcript;
+            _voiceAnswer = result.answer;
+            _voiceError = null;
+          }
+        });
+      } catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _voiceProcessing = false;
+          _voiceError = error.toString();
+        });
+      }
+    } else {
+      try {
+        await controller.start();
+        if (!mounted) return;
+        setState(() {
+          _voiceRecording = true;
+          _voiceTranscript = '';
+          _voiceAnswer = '';
+          _voiceError = null;
+        });
+      } catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _voiceRecording = false;
+          _voiceError = error.toString();
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
-    _stopScheduler();
+    _speakingSubscription?.cancel();
+    _conversationController?.dispose();
     _appState.removeListener(_handleAppStateUpdate);
+    _slideScheduler.stop();
     _cameraCapture.dispose();
     _fastApiClient.dispose();
     super.dispose();
@@ -270,248 +275,339 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     final summary = _appState.latestSummary;
     final slideNumber = _appState.latestSlideNumber;
-    final jsonSummary = summary == null
-        ? 'No slide processed yet.'
-        : const JsonEncoder.withIndent('  ').convert(summary);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'share') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        ShareCameraScreen(serverUrl: Env.signalingServerUrl),
-                  ),
-                );
-              } else if (value == 'connect') {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        ConnectCameraScreen(serverUrl: Env.signalingServerUrl),
-                  ),
-                );
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'share', child: Text('Share Camera')),
-              PopupMenuItem(
-                value: 'connect',
-                child: Text('Connect to Remote Camera'),
-              ),
-            ],
-          ),
-        ],
       ),
-      body: _initializingCameras
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      body: SafeArea(
+        child: _initializingCameras
+            ? const Center(child: CircularProgressIndicator())
+            : Stack(
                 children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildCaptureControlRow(context),
+                      _buildCameraRow(),
+                      _buildSummaryRow(context, slideNumber, summary),
+                      _buildVoiceRow(context),
+                    ],
+                  ),
                   if (_errorMessage != null)
-                    Card(
-                      color: Theme.of(context).colorScheme.errorContainer,
+                    Align(
+                      alignment: Alignment.topCenter,
                       child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          _errorMessage!,
-                          style: TextStyle(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onErrorContainer,
+                        padding: const EdgeInsets.all(16),
+                        child: Material(
+                          color: Theme.of(context).colorScheme.errorContainer,
+                          borderRadius: BorderRadius.circular(12),
+                          elevation: 4,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text(
+                              _errorMessage!,
+                              style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onErrorContainer,
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _cameraReady ? 'Camera Ready' : 'Camera Idle',
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleMedium,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _availableCameras.isEmpty
-                                      ? 'No cameras detected'
-                                      : 'Available cameras: ${_availableCameras.length}',
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (_initializingCameraController)
-                            const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          const SizedBox(width: 12),
-                          ElevatedButton(
-                            onPressed: _initializingCameraController
-                                ? null
-                                : _initializeCamera,
-                            child: const Text('Initialize Camera'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_cameraReady && _slideCamera.previewController != null)
-                    AspectRatio(
-                      aspectRatio:
-                          _slideCamera.previewController!.value.aspectRatio,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: CameraPreview(_slideCamera.previewController!),
-                      ),
-                    ),
-                  if (_lastCapturedFrame != null) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      'Last Captured Frame',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.memory(_lastCapturedFrame!),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Slide Capture Scheduler',
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleMedium,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _schedulerActive
-                                          ? 'Running every ${Env.slideCaptureInterval.inSeconds}s'
-                                          : 'Scheduler is stopped',
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Switch(
-                                value: _schedulerActive,
-                                onChanged: (value) {
-                                  if (value) {
-                                    unawaited(_startScheduler());
-                                  } else {
-                                    _stopScheduler();
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          ElevatedButton.icon(
-                            onPressed: _processingSlide ? null : _captureOnce,
-                            icon: _processingSlide
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.photo_camera),
-                            label: Text(
-                              _processingSlide ? 'Processing…' : 'Capture Once',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Latest Slide Summary',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          if (slideNumber != null)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Text(
-                                'Slide #$slideNumber',
-                                style: Theme.of(context).textTheme.titleSmall
-                                    ?.copyWith(color: Colors.grey.shade700),
-                              ),
-                            ),
-                          Container(
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            padding: const EdgeInsets.all(12),
-                            child: SelectableText(
-                              jsonSummary,
-                              style: const TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          ElevatedButton(
-                            onPressed: summary == null
-                                ? null
-                                : _openTestPipeline,
-                            child: const Text('Test Voice Pipeline'),
-                          ),
-                          const SizedBox(height: 8),
-                          ElevatedButton(
-                            onPressed: _openSlidePipelineTester,
-                            child: const Text('Open Slide Pipeline Tester'),
-                          ),
-                          const SizedBox(height: 8),
-                          ElevatedButton(
-                            onPressed: summary == null ? null : _openEndSummary,
-                            child: const Text('View Session Summary'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Future<void> _handleCaptureTap(BuildContext context) async {
+    if (_cameraReady) {
+      await _stopCamera();
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => EndSummaryPage(
+            summaries: _slideRepository.history.toList(),
+          ),
+        ),
+      );
+    } else {
+      await _initializeCamera();
+    }
+  }
+
+  Widget _buildCaptureControlRow(BuildContext context) {
+    final bool isCapturing = _cameraReady;
+    final bool isBusy = _initializingCameraController;
+    final Color baseColor = isCapturing ? Colors.red : Colors.green;
+    final IconData icon = isBusy
+        ? Icons.hourglass_top
+        : (isCapturing ? Icons.stop : Icons.camera_alt);
+    final String label = isBusy
+        ? 'Initializing…'
+        : (isCapturing ? 'Stop Capturing' : 'Start Capturing');
+
+    return SizedBox(
+      height: 96,
+      child: Material(
+        color: baseColor,
+        child: InkWell(
+          onTap: isBusy ? null : () => _handleCaptureTap(context),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: Colors.white, size: 30),
+                const SizedBox(width: 12),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCameraRow() {
+    return Expanded(
+      flex: 5,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final double side =
+              constraints.biggest.shortestSide == double.infinity
+                  ? constraints.maxWidth
+                  : constraints.biggest.shortestSide;
+          final controller = _slideCamera.previewController;
+          return Center(
+            child: SizedBox(
+              width: side,
+              height: side,
+              child: DecoratedBox(
+                decoration: const BoxDecoration(color: Colors.black),
+                child: _cameraReady && controller != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          child: SizedBox(
+                            width: controller.value.previewSize?.width ?? side,
+                            height:
+                                controller.value.previewSize?.height ?? side,
+                            child: CameraPreview(controller),
+                          ),
+                        ),
+                      )
+                    : const Center(
+                        child: Text(
+                          'Camera Preview',
+                          style: TextStyle(color: Colors.white, fontSize: 18),
+                        ),
+                      ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow(
+    BuildContext context,
+    int? slideNumber,
+    Map<String, dynamic>? summary,
+  ) {
+    final theme = Theme.of(context);
+    final bool processing = _processingSlide;
+    final String heading =
+        processing ? 'Slide Captured. Analyzing…' : 'Slide Summary';
+
+    String? summaryText;
+    if (!processing && summary != null) {
+      summaryText = const JsonEncoder.withIndent('  ').convert(summary);
+    }
+
+    return Expanded(
+      flex: 3,
+      child: Container(
+        width: double.infinity,
+        color: Colors.grey.shade200,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              heading,
+              style: theme.textTheme.titleMedium,
+            ),
+            if (!processing && slideNumber != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Slide #$slideNumber',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            const SizedBox(height: 12),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                padding: const EdgeInsets.all(12),
+                child: processing
+                    ? const Center(child: Text('Please wait…'))
+                    : (summaryText != null
+                        ? Scrollbar(
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              child: SelectableText(
+                                summaryText,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          )
+                        : const Center(
+                            child: Text('Capture a slide first.'),
+                          )),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVoiceRow(BuildContext context) {
+    final theme = Theme.of(context);
+    final bool voiceReady = _conversationController != null;
+    final bool hasSummary = _slideRepository.hasSummary;
+    final bool buttonEnabled = voiceReady && hasSummary && !_voiceProcessing;
+
+    String statusText;
+    if (!hasSummary) {
+      statusText = 'Capture a slide before asking a question.';
+    } else if (_voiceError != null) {
+      statusText = _voiceError!;
+    } else if (_voiceProcessing) {
+      statusText = 'Processing response…';
+    } else if (_voiceRecording) {
+      statusText = 'Listening… tap the button to stop.';
+    } else if (_voiceSpeaking) {
+      statusText = 'Speaking response…';
+    } else if (_voiceAnswer.isNotEmpty) {
+      statusText = 'Tap the button to ask another question.';
+    } else if (!voiceReady) {
+      statusText = 'Voice assistant not initialized.';
+    } else {
+      statusText = 'Ask about the current slide.';
+    }
+
+    return Expanded(
+      flex: 3,
+      child: Container(
+        width: double.infinity,
+        color: Colors.grey.shade100,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Ask About This Slide',
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              statusText,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: _voiceError != null
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _buildTranscriptBox(theme),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: buttonEnabled ? _toggleVoice : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: buttonEnabled
+                      ? (_voiceRecording
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.primary)
+                      : null,
+                  foregroundColor:
+                      buttonEnabled ? Colors.white : theme.colorScheme.onSurface,
+                  textStyle: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                icon: Icon(_voiceRecording ? Icons.stop : Icons.mic, size: 26),
+                label: Text(_voiceRecording ? 'Stop Listening' : 'Tap to Speak'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_voiceAnswer.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text('Assistant', style: theme.textTheme.titleSmall),
+                      const SizedBox(height: 4),
+                      Text(_voiceAnswer),
+                    ],
+                    if (_voiceError != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _voiceError!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTranscriptBox(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Text(
+        _voiceTranscript,
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodyMedium?.copyWith(fontSize: 16),
+      ),
     );
   }
 }
