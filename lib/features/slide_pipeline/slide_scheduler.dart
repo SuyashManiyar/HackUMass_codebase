@@ -16,11 +16,11 @@ class SlideScheduler {
     required SlideRepository repository,
     required AppState appState,
     Duration? interval,
-  })  : _camera = camera,
-        _client = client,
-        _repository = repository,
-        _appState = appState,
-        _interval = interval ?? Env.slideCaptureInterval;
+  }) : _camera = camera,
+       _client = client,
+       _repository = repository,
+       _appState = appState,
+       _interval = interval ?? Env.slideCaptureInterval;
 
   final CameraCaptureService _camera;
   final SlideClient _client;
@@ -58,12 +58,13 @@ class SlideScheduler {
 
     try {
       final result = await _client.processSlide(frame);
-      if (result.summary != null) {
-        if (result.changed || !_repository.hasSummary) {
-          _repository.save(summary: result.summary!);
+      final summary = result.summary;
+      if (summary != null) {
+        if (result.newSlide || !_repository.hasSummary) {
+          _repository.save(summary: summary);
         }
-        final summary = _repository.latestSummary ?? result.summary!;
-        _appState.updateSlide(summary: summary, ocrText: _repository.latestOcr);
+        final latest = _repository.latestSummary ?? summary;
+        _appState.updateSlide(summary: latest);
       }
     } catch (error, stackTrace) {
       debugPrint('SlideScheduler: failed to process slide - $error');
@@ -74,5 +75,3 @@ class SlideScheduler {
     }
   }
 }
-
-

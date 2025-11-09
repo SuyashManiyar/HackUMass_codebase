@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,30 +25,31 @@ class BoundingBoxPoint(BaseModel):
     y: int
 
 
-class SlideComparisonDetails(BaseModel):
+class SlideVisualDetails(BaseModel):
     slide_detected: bool
     bounding_box: Optional[List[BoundingBoxPoint]] = None
     cropped_image_base64: Optional[str] = None
     annotated_image_base64: Optional[str] = None
-    ocr_text: str = ""
-    ocr_char_count: int = 0
-    ocr_word_count: int = 0
+
+
+class SlideComparisonMetrics(BaseModel):
+    clip_cosine: float
+    text_similarity: Optional[float] = None
 
 
 class CompareSlidesResponse(BaseModel):
-    slide1: SlideComparisonDetails
-    slide2: SlideComparisonDetails
-    sequence_similarity: float
-    token_delta: float
-    ssim_score: float
-    are_same_slide: bool
-    changed: bool
+    slide1: SlideVisualDetails
+    slide2: SlideVisualDetails
+    metrics: SlideComparisonMetrics
+    new_slide: bool
 
 
 class ProcessSlideResponse(BaseModel):
-    changed: bool
+    new_slide: bool
+    clip_cosine: float
+    text_similarity: Optional[float] = None
+    slide_detected: bool
+    bounding_box: Optional[List[BoundingBoxPoint]] = None
     summary: Optional[GeminiSummary] = None
-    slide_detected: bool = True
-    debug: Optional[Dict[str, Any]] = None
 
 

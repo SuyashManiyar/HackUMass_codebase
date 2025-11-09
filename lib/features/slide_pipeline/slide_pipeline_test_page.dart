@@ -294,34 +294,22 @@ class _SlidePipelineTestPageState extends State<SlidePipelineTestPage> {
           children: [
             Chip(
               avatar: Icon(
-                result.changed ? Icons.warning_amber : Icons.check_circle,
-                color: result.changed ? Colors.orange : Colors.green,
-              ),
-              label: Text(result.changed ? 'Slides differ' : 'Slides match'),
-            ),
-            Chip(
-              avatar: Icon(
-                result.areSameSlide ? Icons.copy : Icons.compare_arrows,
-                color: result.areSameSlide ? Colors.blue : Colors.redAccent,
+                result.newSlide ? Icons.warning_amber : Icons.check_circle,
+                color: result.newSlide ? Colors.orange : Colors.green,
               ),
               label: Text(
-                result.areSameSlide
-                    ? 'SSIM indicates same slide'
-                    : 'SSIM indicates change',
+                result.newSlide ? 'New slide detected' : 'Same slide',
               ),
             ),
             Chip(
               label: Text(
-                'Sequence similarity: ${(result.sequenceSimilarity * 100).toStringAsFixed(1)}%',
+                'CLIP cosine: ${result.clipCosine.toStringAsFixed(3)}',
               ),
             ),
             Chip(
               label: Text(
-                'Token delta: ${(result.tokenDelta * 100).toStringAsFixed(1)}%',
+                'Text similarity: ${_formatPercent(result.textSimilarity)}',
               ),
-            ),
-            Chip(
-              label: Text('SSIM score: ${result.ssimScore.toStringAsFixed(4)}'),
             ),
           ],
         ),
@@ -368,26 +356,6 @@ class _SlidePipelineTestPageState extends State<SlidePipelineTestPage> {
         ),
         const SizedBox(height: 12),
         Text('Bounding box: $boundingBoxText'),
-        const SizedBox(height: 8),
-        Text(
-          'OCR text (${analysis.ocrWordCount} words, ${analysis.ocrCharCount} chars):',
-          style: Theme.of(context).textTheme.labelLarge,
-        ),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.shade300),
-          ),
-          padding: const EdgeInsets.all(12),
-          child: SelectableText(
-            analysis.ocrText.isEmpty
-                ? 'No OCR text extracted.'
-                : analysis.ocrText,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-          ),
-        ),
       ],
     );
   }
@@ -424,4 +392,11 @@ class _SlidePipelineTestPageState extends State<SlidePipelineTestPage> {
       ),
     );
   }
+}
+
+String _formatPercent(double? value) {
+  if (value == null) {
+    return '—';
+  }
+  return '${(value * 100).toStringAsFixed(1)}%';
 }

@@ -195,12 +195,13 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _applySlideResult(SlideProcessResult result) {
-    if (result.summary != null) {
-      if (result.changed || !_slideRepository.hasSummary) {
-        _slideRepository.save(summary: result.summary!);
+    final summary = result.summary;
+    if (summary != null) {
+      if (result.newSlide || !_slideRepository.hasSummary) {
+        _slideRepository.save(summary: summary);
       }
-      final summary = _slideRepository.latestSummary ?? result.summary!;
-      _appState.updateSlide(summary: summary, ocrText: _slideRepository.latestOcr);
+      final latest = _slideRepository.latestSummary ?? summary;
+      _appState.updateSlide(summary: latest);
     }
   }
 
@@ -224,9 +225,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _openSlidePipelineTester() {
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const SlidePipelineTestPage(),
-      ),
+      MaterialPageRoute(builder: (context) => const SlidePipelineTestPage()),
     );
   }
 
@@ -256,26 +255,21 @@ class _MyHomePageState extends State<MyHomePage> {
               if (value == 'share') {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => ShareCameraScreen(
-                      serverUrl: Env.signalingServerUrl,
-                    ),
+                    builder: (context) =>
+                        ShareCameraScreen(serverUrl: Env.signalingServerUrl),
                   ),
                 );
               } else if (value == 'connect') {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => ConnectCameraScreen(
-                      serverUrl: Env.signalingServerUrl,
-                    ),
+                    builder: (context) =>
+                        ConnectCameraScreen(serverUrl: Env.signalingServerUrl),
                   ),
                 );
               }
             },
             itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'share',
-                child: Text('Share Camera'),
-              ),
+              PopupMenuItem(value: 'share', child: Text('Share Camera')),
               PopupMenuItem(
                 value: 'connect',
                 child: Text('Connect to Remote Camera'),
@@ -299,7 +293,9 @@ class _MyHomePageState extends State<MyHomePage> {
                         child: Text(
                           _errorMessage!,
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.onErrorContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onErrorContainer,
                           ),
                         ),
                       ),
@@ -315,7 +311,9 @@ class _MyHomePageState extends State<MyHomePage> {
                               children: [
                                 Text(
                                   _cameraReady ? 'Camera Ready' : 'Camera Idle',
-                                  style: Theme.of(context).textTheme.titleMedium,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
@@ -334,7 +332,9 @@ class _MyHomePageState extends State<MyHomePage> {
                             ),
                           const SizedBox(width: 12),
                           ElevatedButton(
-                            onPressed: _initializingCameraController ? null : _initializeCamera,
+                            onPressed: _initializingCameraController
+                                ? null
+                                : _initializeCamera,
                             child: const Text('Initialize Camera'),
                           ),
                         ],
@@ -344,7 +344,8 @@ class _MyHomePageState extends State<MyHomePage> {
                   const SizedBox(height: 16),
                   if (_cameraReady && _slideCamera.previewController != null)
                     AspectRatio(
-                      aspectRatio: _slideCamera.previewController!.value.aspectRatio,
+                      aspectRatio:
+                          _slideCamera.previewController!.value.aspectRatio,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: CameraPreview(_slideCamera.previewController!),
@@ -377,7 +378,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                   children: [
                                     Text(
                                       'Slide Capture Scheduler',
-                                      style: Theme.of(context).textTheme.titleMedium,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.titleMedium,
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
@@ -407,7 +410,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ? const SizedBox(
                                     width: 16,
                                     height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
                                   )
                                 : const Icon(Icons.photo_camera),
                             label: Text(
@@ -447,7 +452,9 @@ class _MyHomePageState extends State<MyHomePage> {
                           ),
                           const SizedBox(height: 12),
                           ElevatedButton(
-                            onPressed: summary == null ? null : _openTestPipeline,
+                            onPressed: summary == null
+                                ? null
+                                : _openTestPipeline,
                             child: const Text('Test Voice Pipeline'),
                           ),
                           const SizedBox(height: 8),
@@ -465,5 +472,3 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 }
-
-
