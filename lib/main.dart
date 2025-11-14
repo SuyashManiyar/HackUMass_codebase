@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:async';
 import 'dart:io';
+import 'package:camera/camera.dart';
 import 'gemini_service.dart';
 import 'pipeline_service.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'camera_preview_service.dart';
+import 'end_summary_page.dart';
 
-
-Future<void> main() async{
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: ".env");
-  print('Dotenv loaded successfully');
-  print('GEMINI_API_KEY exists: ${dotenv.env['GEMINI_API_KEY'] != null}');
-  print('OPENROUTER_API_KEY exists: ${dotenv.env['OPNRTR_API_KEY'] != null}');
   runApp(const MyApp());
 }
 
@@ -20,11 +20,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'HackUMass',
+      title: 'SightScribe',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: const MyHomePage(title: 'HackUMass'),
+      home: const MyHomePage(title: 'SightScribe'),
     );
   }
 }
@@ -39,85 +39,95 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  File? _image;
-  final ImagePicker _picker = ImagePicker();
-  String? _imageSummary;
-  bool _isLoadingImage = false;
-
+  bool _isCapturing = false;
+  final CameraPreviewService _cameraService = CameraPreviewService();
   final PipelineService _pipelineService = PipelineService();
+
+  Map<String, dynamic>? _currentSlideSummary;
+  List<Map<String, dynamic>> _allSlideSummaries = [];
+
   String _transcription = '';
   bool _isSpeechInitialized = false;
   bool _isProcessingPipeline = false;
+  bool _isAnalyzingSlide = false;
+
+  Timer? _captureTimer;
 
   @override
   void initState() {
     super.initState();
-    _initializeSpeech();
+    _initializeServices();
   }
 
-  Future<void> _initializeSpeech() async {
+  Future<void> _initializeServices() async {
     await _pipelineService.initialize();
     setState(() {
       _isSpeechInitialized = _pipelineService.isInitialized;
     });
-    if (!_isSpeechInitialized) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Speech recognition not available'),
-          backgroundColor: Colors.red,
+  }
+
+  Future<void> _toggleCapturing() async {
+    if (_isCapturing) {
+      _stopCapturing();
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => EndSummaryPage(slideSummaries: _allSlideSummaries),
         ),
       );
+    } else {
+      await _startCapturing();
     }
   }
 
-  Future<void> _captureImage() async {
-    try {
-      final XFile? image = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
-      );
-
-      if (image != null) {
-        setState(() {
-          _image = File(image.path);
-          _imageSummary = null;
-        });
-      }
-    } catch (e) {
-      print('Error capturing image: $e');
-    }
-  }
-
-  Future<void> _describeImage() async {
-    if (_image == null) return;
+  Future<void> _startCapturing() async {
+    await _cameraService.initialize();
 
     setState(() {
-      _isLoadingImage = true;
-      _imageSummary = null;
+      _isCapturing = true;
+      _allSlideSummaries = [];
+      _currentSlideSummary = null;
     });
 
-    try {
-      final imageBytes = await _image!.readAsBytes();
-      final result = await get_gemini_response(imageBytes);
+    await _captureAndAnalyze();
 
-      setState(() {
-        _imageSummary = result.toString();
-        _isLoadingImage = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoadingImage = false;
-      });
+    _captureTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      _captureAndAnalyze();
+    });
+  }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+  void _stopCapturing() {
+    _captureTimer?.cancel();
+    _cameraService.dispose();
+
+    setState(() {
+      _isCapturing = false;
+    });
+  }
+
+  Future<void> _captureAndAnalyze() async {
+    setState(() {
+      _isAnalyzingSlide = true;
+    });
+
+    final imagePath = await _cameraService.takePicture();
+
+    if (imagePath != null) {
+      try {
+        final imageBytes = await File(imagePath).readAsBytes();
+        final result = await get_gemini_response(imageBytes);
+
+        setState(() {
+          _currentSlideSummary = result;
+          _allSlideSummaries.add(result);
+          _isAnalyzingSlide = false;
+        });
+      } catch (e) {
+        print('Error analyzing slide: $e');
+        setState(() {
+          _isAnalyzingSlide = false;
+        });
       }
-      print('Error describing image: $e');
     }
   }
 
@@ -128,10 +138,10 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _toggleMicrophone() async {
-    if (_imageSummary == null || _imageSummary!.isEmpty) {
+    if (_currentSlideSummary == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please capture and analyze an image first'),
+          content: Text('Please capture a slide first'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -143,7 +153,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _isProcessingPipeline = true;
       });
 
-      await _pipelineService.stopPipelineAndProcess(_imageSummary!);
+      await _pipelineService.stopPipelineAndProcess(_currentSlideSummary.toString());
 
       setState(() {
         _isProcessingPipeline = false;
@@ -152,13 +162,26 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         _transcription = '';
       });
-      await _pipelineService.startPipeline(_imageSummary!, _onTranscriptionUpdate);
+      await _pipelineService.startPipeline(_currentSlideSummary.toString(), _onTranscriptionUpdate);
       setState(() {});
     }
   }
 
+  String _getDisplaySummary() {
+    if (_currentSlideSummary == null) return 'No summary available';
+
+    final displaySummary = _currentSlideSummary!['display_summary'];
+    if (displaySummary != null && displaySummary is List && displaySummary.isNotEmpty) {
+      return displaySummary[0].toString();
+    }
+
+    return 'No summary available';
+  }
+
   @override
   void dispose() {
+    _captureTimer?.cancel();
+    _cameraService.dispose();
     _pipelineService.dispose();
     super.dispose();
   }
@@ -173,124 +196,126 @@ class _MyHomePageState extends State<MyHomePage> {
       body: Column(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: <Widget>[
-                    ElevatedButton.icon(
-                      onPressed: _captureImage,
-                      icon: const Icon(Icons.camera_alt),
-                      label: const Text('Open Camera'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            flex: 1,
+            child: InkWell(
+              onTap: _toggleCapturing,
+              child: Container(
+                width: double.infinity,
+                color: _isCapturing ? Colors.red : Colors.green,
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.camera_alt,
+                        color: Colors.white,
+                        size: 40,
                       ),
-                    ),
-                    const SizedBox(height: 20),
-                    if (_image != null)
-                      Column(
-                        children: [
-                          Container(
-                            margin: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey, width: 2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: Image.file(
-                                _image!,
-                                width: 300,
-                                height: 300,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          ElevatedButton.icon(
-                            onPressed: _isLoadingImage ? null : _describeImage,
-                            icon: _isLoadingImage
-                                ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                                : const Icon(Icons.auto_awesome),
-                            label: Text(_isLoadingImage ? 'Analyzing...' : 'Describe Image'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                            ),
-                          ),
-                          if (_imageSummary != null) ...[
-                            const SizedBox(height: 20),
-                            Container(
-                              width: double.infinity,
-                              margin: const EdgeInsets.symmetric(horizontal: 16),
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.grey[100],
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey[300]!),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Image Summary:',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    _imageSummary!,
-                                    style: const TextStyle(fontSize: 14),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
-                      )
-                    else
-                      Container(
-                        width: 300,
-                        height: 300,
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey, width: 2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'No image captured',
-                            style: TextStyle(color: Colors.grey),
-                          ),
+                      const SizedBox(width: 16),
+                      Text(
+                        _isCapturing ? 'Stop Capturing' : 'Start Capturing',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              border: Border(top: BorderSide(color: Colors.grey[300]!, width: 2)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Ask a Question',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          Expanded(
+            flex: 2,
+            child: Container(
+              width: double.infinity,
+              color: Colors.black,
+              child: _isCapturing && _cameraService.isInitialized
+                  ? Center(
+                child: _cameraService.controller!.value.aspectRatio > 1
+                    ? AspectRatio(
+                  aspectRatio: _cameraService.controller!.value.aspectRatio,
+                  child: CameraPreview(_cameraService.controller!),
+                )
+                    : FittedBox(
+                  fit: BoxFit.contain,
+                  child: SizedBox(
+                    width: _cameraService.controller!.value.previewSize!.height,
+                    height: _cameraService.controller!.value.previewSize!.width,
+                    child: CameraPreview(_cameraService.controller!),
                   ),
-                  const SizedBox(height: 16),
-                  if (!_isSpeechInitialized)
-                    const CircularProgressIndicator()
-                  else ...[
+                ),
+              )
+                  : const Center(
+                child: Text(
+                  'Camera Preview',
+                  style: TextStyle(color: Colors.white, fontSize: 20),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: Colors.grey[200],
+              child: _isAnalyzingSlide
+                  ? const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      'Slide Captured. Analyzing...',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+              )
+                  : _currentSlideSummary != null
+                  ? SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Slide Summary',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _getDisplaySummary(),
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ],
+                ),
+              )
+                  : const Center(
+                child: Text(
+                  'Slide Summary',
+                  style: TextStyle(fontSize: 18, color: Colors.grey),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                border: Border(top: BorderSide(color: Colors.grey[300]!, width: 2)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
@@ -299,30 +324,29 @@ class _MyHomePageState extends State<MyHomePage> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.grey[300]!),
                       ),
-                      constraints: const BoxConstraints(minHeight: 60),
                       child: Text(
                         _transcription.isEmpty
-                            ? (_imageSummary == null
-                            ? 'Capture and analyze an image first'
-                            : 'Click mic to ask a question')
+                            ? (_currentSlideSummary == null
+                            ? 'Capture a slide first'
+                            : 'Tap mic to ask a question')
                             : _transcription,
                         style: const TextStyle(fontSize: 16),
                         textAlign: TextAlign.center,
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    GestureDetector(
-                      onTap: _toggleMicrophone,
+                    const SizedBox(height: 16),
+                    InkWell(
+                      onTap: _isSpeechInitialized ? _toggleMicrophone : null,
                       child: Container(
-                        width: 80,
-                        height: 80,
+                        width: double.infinity,
+                        height: 60,
                         decoration: BoxDecoration(
                           color: _pipelineService.isListening
                               ? Colors.red
                               : _isProcessingPipeline
                               ? Colors.orange
-                              : (_imageSummary == null ? Colors.grey : Colors.blue),
-                          shape: BoxShape.circle,
+                              : (_currentSlideSummary == null ? Colors.grey : Colors.blue),
+                          borderRadius: BorderRadius.circular(30),
                         ),
                         child: _isProcessingPipeline
                             ? const Center(
@@ -331,24 +355,33 @@ class _MyHomePageState extends State<MyHomePage> {
                             strokeWidth: 3,
                           ),
                         )
-                            : Icon(
-                          _pipelineService.isListening ? Icons.mic : Icons.mic_none,
-                          size: 40,
-                          color: Colors.white,
+                            : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              _pipelineService.isListening ? Icons.mic : Icons.mic_none,
+                              color: Colors.white,
+                              size: 30,
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              _pipelineService.isListening
+                                  ? 'Listening... (Tap to stop)'
+                                  : _isProcessingPipeline
+                                  ? 'Processing...'
+                                  : 'Tap to speak',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _pipelineService.isListening
-                          ? 'Listening... (Click to stop)'
-                          : _isProcessingPipeline
-                          ? 'Processing...'
-                          : 'Click to speak',
-                      style: const TextStyle(fontSize: 14),
-                    ),
                   ],
-                ],
+                ),
               ),
             ),
           ),
