@@ -50,6 +50,8 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _isSpeechInitialized = false;
   bool _isProcessingPipeline = false;
   bool _isAnalyzingSlide = false;
+  bool _isInitialDelay = false;
+  int _countdown = 3;
 
   Timer? _captureTimer;
 
@@ -79,6 +81,8 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         _currentSlideSummary = null;
         _transcription = '';
+        _isInitialDelay = false;
+        _countdown = 3;
       });
     } else {
       await _startCapturing();
@@ -92,6 +96,21 @@ class _MyHomePageState extends State<MyHomePage> {
       _isCapturing = true;
       _allSlideSummaries = [];
       _currentSlideSummary = null;
+      _isInitialDelay = true;
+      _countdown = 3;
+    });
+
+    // 3 second delay before first capture
+    for (int i = 3; i > 0; i--) {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!_isCapturing) return; // Stop if user stopped capturing
+      setState(() {
+        _countdown = i - 1;
+      });
+    }
+
+    setState(() {
+      _isInitialDelay = false;
     });
 
     await _captureAndAnalyze();
@@ -107,6 +126,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
     setState(() {
       _isCapturing = false;
+      _isInitialDelay = false;
+      _countdown = 3;
     });
   }
 
@@ -235,29 +256,23 @@ class _MyHomePageState extends State<MyHomePage> {
             flex: 2,
             child: Container(
               width: double.infinity,
-              color: Colors.black,
+              color: Colors.grey[200],
               child: _isCapturing && _cameraService.isInitialized
                   ? Center(
-                child: _cameraService.controller!.value.aspectRatio > 1
-                    ? AspectRatio(
-                  aspectRatio: _cameraService.controller!.value.aspectRatio,
-                  child: CameraPreview(_cameraService.controller!),
-                )
-                    : FittedBox(
-                  fit: BoxFit.contain,
-                  child: SizedBox(
-                    width: _cameraService.controller!.value.previewSize!.height,
-                    height: _cameraService.controller!.value.previewSize!.width,
-                    child: CameraPreview(_cameraService.controller!),
-                  ),
-                ),
-              )
+                      child: AspectRatio(
+                        // For portrait mode, invert the aspect ratio if it's > 1
+                        aspectRatio: _cameraService.controller!.value.aspectRatio > 1
+                            ? 1 / _cameraService.controller!.value.aspectRatio
+                            : _cameraService.controller!.value.aspectRatio,
+                        child: CameraPreview(_cameraService.controller!),
+                      ),
+                    )
                   : const Center(
-                child: Text(
-                  'Camera Preview',
-                  style: TextStyle(color: Colors.white, fontSize: 20),
-                ),
-              ),
+                      child: Text(
+                        'Camera Preview',
+                        style: TextStyle(color: Colors.grey, fontSize: 20),
+                      ),
+                    ),
             ),
           ),
           Expanded(
@@ -265,8 +280,36 @@ class _MyHomePageState extends State<MyHomePage> {
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
-              color: Colors.grey[200],
-              child: _isAnalyzingSlide
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                border: Border(top: BorderSide(color: Colors.black, width: 2)),
+              ),
+              child: _isInitialDelay
+                  ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Get ready...',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '$_countdown',
+                      style: TextStyle(
+                        fontSize: 48,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+                  : _isAnalyzingSlide
                   ? const Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
