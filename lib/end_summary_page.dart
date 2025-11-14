@@ -41,7 +41,7 @@ class _EndSummaryPageState extends State<EndSummaryPage> {
     try {
       final apiKey = dotenv.env['GEMINI_API_KEY']!;
       final model = GenerativeModel(
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-2.5-flash',
         apiKey: apiKey,
       );
 
@@ -78,8 +78,18 @@ Overall Summary:
       });
     } catch (e) {
       print('Error generating overall summary: $e');
+      String errorMessage = 'Error generating summary.';
+      
+      // Check if it's a quota error
+      final errorString = e.toString().toLowerCase();
+      if (errorString.contains('quota') || errorString.contains('limit')) {
+        errorMessage = 'API quota exceeded. Please try again later.';
+      } else if (errorString.contains('network') || errorString.contains('connection')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      }
+      
       setState(() {
-        _overallSummary = 'Error generating summary.';
+        _overallSummary = errorMessage;
         _isGeneratingOverall = false;
       });
     }

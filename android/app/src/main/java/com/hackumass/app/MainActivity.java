@@ -1,4 +1,4 @@
-package com.hackumass.app;
+package com.slidescribe.app;
 
 import io.flutter.embedding.android.FlutterActivity;
 

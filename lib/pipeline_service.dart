@@ -69,7 +69,7 @@ Your 10-Second Answer (25 words max):
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $openRouterApiKey',
           'HTTP-Referer': 'https://github.com/yourusername/yourapp',
-          'X-Title': 'HackUMass App',
+          'X-Title': 'SlideScribe App',
         },
         body: jsonEncode({
           'model': 'openai/gpt-4o-mini',

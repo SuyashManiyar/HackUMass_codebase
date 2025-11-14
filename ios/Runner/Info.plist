@@ -9,7 +9,7 @@
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>This app needs speech recognition</string>
 	<key>CFBundleDisplayName</key>
-	<string>HackUMass</string>
+	<string>SlideScribe</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -17,7 +17,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>hackumass</string>
+	<string>Sl</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

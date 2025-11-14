@@ -20,11 +20,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SightScribe',
+      title: 'SlideScribe',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
-      home: const MyHomePage(title: 'SightScribe'),
+      home: const MyHomePage(title: 'SlideScribe'),
     );
   }
 }
@@ -69,12 +69,17 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _toggleCapturing() async {
     if (_isCapturing) {
       _stopCapturing();
-      Navigator.push(
+      await Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => EndSummaryPage(slideSummaries: _allSlideSummaries),
         ),
       );
+      // Reset state when returning from summary page
+      setState(() {
+        _currentSlideSummary = null;
+        _transcription = '';
+      });
     } else {
       await _startCapturing();
     }

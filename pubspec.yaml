@@ -1,5 +1,5 @@
-name: hackumass
-description: "HackUMass camera app with Gemini AI image description"
+name: SlideScribe
+description: "SlideScribe is a AI-powered tool that makes makes classroom presentations accessible to visually impaired students."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
